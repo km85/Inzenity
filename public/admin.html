@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Innova Zenix Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <div class="eyebrow">Admin Dashboard</div>
+        <h1>Innova Zenix Community Admin</h1>
+        <p class="muted">Simple local tables for demo users, events, announcements, and vendors.</p>
+      </div>
+      <div class="toolbar">
+        <a class="ghost-button" href="/">Open Member App</a>
+        <button class="danger-button" id="resetDataButton" type="button">Reset Seed Data</button>
+      </div>
+    </header>
+
+    <div class="table-card">
+      <div class="stat-grid" id="stats"></div>
+    </div>
+
+    <div class="section-header">
+      <h2>Manage Content</h2>
+      <div class="admin-tabs" id="adminTabs"></div>
+    </div>
+
+    <div class="admin-grid">
+      <section class="table-card">
+        <div id="tableArea"></div>
+      </section>
+
+      <aside class="form-card admin">
+        <div class="eyebrow">Editor</div>
+        <h2 id="formTitle">New Record</h2>
+        <form id="recordForm"></form>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

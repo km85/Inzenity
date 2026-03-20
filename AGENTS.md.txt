@@ -1,0 +1,43 @@
+# Innova Zenix Community App MVP
+
+Build a lightweight mobile-first community app for the Innova Zenix club.
+
+## Product goal
+Focus on event coordination and essential communication for club members.
+
+## User app features
+- Phone number login
+- Events list
+- Event detail
+- RSVP with Going / Maybe / Not Going
+- Announcements list
+- Vendor directory with WhatsApp contact links
+
+## Admin web features
+- Users management
+- Events CRUD
+- Announcements CRUD
+- Vendors CRUD
+
+## Constraints
+- Keep it lightweight
+- Mobile-first user experience
+- Simple web admin dashboard
+- One local project only
+- Use seeded sample data
+- No payment
+- No chat
+- No marketplace
+- No car profiles
+- No analytics dashboard
+
+## UI guidance
+- User app should feel like a simple community app
+- Admin should be table-based and easy for non-technical admins
+- Clean, minimal, practical
+
+## Delivery
+- Working source code
+- Clear folder structure
+- Seed data
+- README with local run steps

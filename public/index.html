@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Innova Zenix Community</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="loginView" class="login-wrap">
+    <div class="login-card">
+      <div class="eyebrow">Member App</div>
+      <h1>Innova Zenix Community</h1>
+      <p class="muted">See upcoming club plans, recent updates, and trusted vendors. Use a demo member below or sign in with a phone number.</p>
+      <div class="landing-panel">
+        <div class="landing-item">
+          <strong>Next Meetup</strong>
+          <span>Sunday Morning Cruise</span>
+        </div>
+        <div class="landing-item">
+          <strong>Latest Update</strong>
+          <span>Convoy etiquette reminder</span>
+        </div>
+        <div class="landing-item">
+          <strong>Vendor Contact</strong>
+          <span>AutoLab Kemang on WhatsApp</span>
+        </div>
+      </div>
+      <div class="demo-strip">
+        <button class="pill" type="button" data-demo-phone="081234567890">Raka</button>
+        <button class="pill" type="button" data-demo-phone="081298765432">Dina</button>
+        <button class="pill" type="button" data-demo-phone="081377788899">Bimo</button>
+      </div>
+      <form id="loginForm">
+        <div class="input-group">
+          <label for="loginName">Name</label>
+          <input id="loginName" name="name" type="text" placeholder="Optional for new members">
+        </div>
+        <div class="input-group">
+          <label for="loginPhone">Phone Number</label>
+          <input id="loginPhone" name="phone" type="tel" placeholder="08xxxxxxxxxx" required>
+        </div>
+        <button class="primary-button" type="submit">Continue</button>
+      </form>
+      <p class="helper-text">Admin dashboard: <a href="/admin">http://localhost:8080/admin</a></p>
+    </div>
+  </div>
+
+  <div id="appView" class="shell hidden">
+    <main class="mobile-app">
+      <section class="hero-card">
+        <div class="eyebrow">Community Hub</div>
+        <h1 id="welcomeName"></h1>
+        <p id="welcomeMeta" class="muted"></p>
+      </section>
+
+      <section id="screen-events" class="screen"></section>
+      <section id="screen-event-detail" class="screen hidden"></section>
+      <section id="screen-announcements" class="screen hidden"></section>
+      <section id="screen-vendors" class="screen hidden"></section>
+      <section id="screen-profile" class="screen hidden"></section>
+    </main>
+
+    <nav class="bottom-nav">
+      <div class="nav-bar">
+        <a href="#events" class="nav-link" data-screen="events">Events</a>
+        <a href="#announcements" class="nav-link" data-screen="announcements">Updates</a>
+        <a href="#vendors" class="nav-link" data-screen="vendors">Vendors</a>
+        <a href="#profile" class="nav-link" data-screen="profile">Profile</a>
+      </div>
+    </nav>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
