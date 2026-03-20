@@ -6,6 +6,7 @@ $dataDir = Join-Path $root "data"
 $seedPath = Join-Path $dataDir "seed.json"
 $dbPath = Join-Path $dataDir "db.json"
 $port = if ($env:PORT) { [int]$env:PORT } else { 8080 }
+$sessionCookieName = "zenix_session"
 
 function Initialize-Database {
     if (-not (Test-Path $dbPath)) {
@@ -18,26 +19,27 @@ function Load-Db {
 }
 
 function Save-Db($db) {
-    $db | ConvertTo-Json -Depth 10 | Set-Content -Path $dbPath
+    $db | ConvertTo-Json -Depth 12 | Set-Content -Path $dbPath
 }
 
-function New-Response($statusCode, $contentType, [byte[]]$bodyBytes) {
+function New-Response($statusCode, $contentType, [byte[]]$bodyBytes, $headers = @{}) {
     return [PSCustomObject]@{
         StatusCode = $statusCode
         ContentType = $contentType
         BodyBytes = $bodyBytes
+        Headers = $headers
     }
 }
 
-function Json-Response($statusCode, $payload) {
-    $json = $payload | ConvertTo-Json -Depth 10
+function Json-Response($statusCode, $payload, $headers = @{}) {
+    $json = $payload | ConvertTo-Json -Depth 12
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-    return (New-Response $statusCode "application/json; charset=utf-8" $bytes)
+    return (New-Response $statusCode "application/json; charset=utf-8" $bytes $headers)
 }
 
-function Text-Response($statusCode, $contentType, $text) {
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($text)
-    return (New-Response $statusCode $contentType $bytes)
+function File-Response($filePath, $headers = @{}) {
+    $bytes = [System.IO.File]::ReadAllBytes($filePath)
+    return (New-Response 200 (Get-MimeType $filePath) $bytes $headers)
 }
 
 function Get-MimeType($filePath) {
@@ -57,13 +59,83 @@ function Read-JsonBody($request) {
     return ($request.Body | ConvertFrom-Json)
 }
 
-function Resolve-StaticPath($path) {
+function New-SessionCookie($token) {
+    return "$sessionCookieName=$token; Path=/; HttpOnly; SameSite=Lax"
+}
+
+function Clear-SessionCookie() {
+    return "$sessionCookieName=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+}
+
+function Sanitize-User($user) {
+    return [PSCustomObject]@{
+        id = [int]$user.id
+        name = $user.name
+        username = $user.username
+        role = $user.role
+        phone = $user.phone
+        city = $user.city
+    }
+}
+
+function Get-SessionContext($request) {
+    $token = if ($request.Cookies.ContainsKey($sessionCookieName)) { $request.Cookies[$sessionCookieName] } else { $null }
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        return $null
+    }
+
+    $db = Load-Db
+    $session = $db.sessions | Where-Object { $_.token -eq $token } | Select-Object -First 1
+    if (-not $session) {
+        return $null
+    }
+
+    $user = $db.users | Where-Object { [int]$_.id -eq [int]$session.userId } | Select-Object -First 1
+    if (-not $user) {
+        return $null
+    }
+
+    return [PSCustomObject]@{
+        token = $token
+        user = $user
+        db = $db
+        session = $session
+    }
+}
+
+function Require-Session($request, $role = $null) {
+    $context = Get-SessionContext $request
+    if (-not $context) {
+        return [PSCustomObject]@{
+            Context = $null
+            ErrorResponse = Json-Response 401 @{ error = "Authentication required" }
+        }
+    }
+
+    if ($role -and $context.user.role -ne $role) {
+        return [PSCustomObject]@{
+            Context = $null
+            ErrorResponse = Json-Response 403 @{ error = "Forbidden" }
+        }
+    }
+
+    return [PSCustomObject]@{
+        Context = $context
+        ErrorResponse = $null
+    }
+}
+
+function Resolve-StaticPath($path, $request) {
     if ($path -eq "/") {
         return (Join-Path $publicDir "index.html")
     }
 
     if ($path -eq "/admin" -or $path -eq "/admin/") {
-        return (Join-Path $publicDir "admin.html")
+        $sessionResult = Require-Session $request "admin"
+        if ($sessionResult.Context) {
+            return (Join-Path $publicDir "admin.html")
+        }
+        return (Join-Path $publicDir "admin-login.html")
     }
 
     $candidate = Join-Path $publicDir ($path.TrimStart("/") -replace "/", "\")
@@ -74,38 +146,152 @@ function Resolve-StaticPath($path) {
     return $null
 }
 
-function Handle-Login($request) {
+function Handle-AuthLogin($request) {
     $body = Read-JsonBody $request
-    $phone = if ($body) { "$($body.phone)".Trim() } else { "" }
-    if ([string]::IsNullOrWhiteSpace($phone)) {
-        return (Json-Response 400 @{ error = "Phone number is required" })
+    $username = if ($body) { "$($body.username)".Trim() } else { "" }
+    $password = if ($body) { "$($body.password)" } else { "" }
+    $scope = if ($body) { "$($body.scope)" } else { "member" }
+
+    if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
+        return (Json-Response 400 @{ error = "Username and password are required" })
     }
 
     $db = Load-Db
-    $user = $db.users | Where-Object { $_.phone -eq $phone } | Select-Object -First 1
-
-    if (-not $user) {
-        $id = [int]$db.nextIds.users
-        $suffix = if ($phone.Length -ge 4) { $phone.Substring($phone.Length - 4) } else { $phone }
-        $user = [PSCustomObject]@{
-            id = $id
-            name = if ($body.name) { "$($body.name)".Trim() } else { "Member $suffix" }
-            phone = $phone
-            role = "member"
-            city = "Jakarta"
-        }
-        $db.users += $user
-        $db.nextIds.users = $id + 1
-        Save-Db $db
+    $user = $db.users | Where-Object { $_.username -eq $username } | Select-Object -First 1
+    if (-not $user -or $user.password -ne $password) {
+        return (Json-Response 401 @{ error = "Invalid username or password" })
     }
 
-    return (Json-Response 200 @{ user = $user })
+    if ($scope -eq "admin" -and $user.role -ne "admin") {
+        return (Json-Response 403 @{ error = "Admin access required" })
+    }
+
+    if ($scope -eq "member" -and $user.role -ne "member") {
+        return (Json-Response 403 @{ error = "Member access required" })
+    }
+
+    $token = [Guid]::NewGuid().ToString("N")
+    $db.sessions = @($db.sessions | Where-Object { [int]$_.userId -ne [int]$user.id })
+    $db.sessions += [PSCustomObject]@{
+        token = $token
+        userId = [int]$user.id
+        role = $user.role
+        createdAt = (Get-Date).ToString("s")
+    }
+    Save-Db $db
+
+    return (Json-Response 200 @{
+        user = (Sanitize-User $user)
+    } @{
+        "Set-Cookie" = New-SessionCookie $token
+    })
+}
+
+function Handle-AuthMe($request) {
+    $result = Require-Session $request
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
+    return (Json-Response 200 @{ user = (Sanitize-User $result.Context.user) })
+}
+
+function Handle-AuthLogout($request) {
+    $context = Get-SessionContext $request
+    if ($context) {
+        $context.db.sessions = @($context.db.sessions | Where-Object { $_.token -ne $context.token })
+        Save-Db $context.db
+    }
+
+    return (Json-Response 200 @{ success = $true } @{
+        "Set-Cookie" = Clear-SessionCookie
+    })
+}
+
+function Handle-UsersCollection($request) {
+    $result = Require-Session $request "admin"
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
+    $db = $result.Context.db
+    if ($request.Method -eq "GET") {
+        return (Json-Response 200 @($db.users))
+    }
+
+    if ($request.Method -eq "POST") {
+        $body = Read-JsonBody $request
+        $id = [int]$db.nextIds.users
+        $item = [PSCustomObject]@{
+            id = $id
+            name = $body.name
+            username = $body.username
+            password = $body.password
+            phone = $body.phone
+            role = $body.role
+            city = $body.city
+        }
+        $db.users += $item
+        $db.nextIds.users = $id + 1
+        Save-Db $db
+        return (Json-Response 201 $item)
+    }
+
+    return (Json-Response 405 @{ error = "Method not allowed" })
+}
+
+function Handle-UsersItem($request, $id) {
+    $result = Require-Session $request "admin"
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
+    $db = $result.Context.db
+    $items = @($db.users)
+    $item = $items | Where-Object { [int]$_.id -eq [int]$id } | Select-Object -First 1
+    if (-not $item) {
+        return (Json-Response 404 @{ error = "Not found" })
+    }
+
+    if ($request.Method -eq "GET") {
+        return (Json-Response 200 $item)
+    }
+
+    if ($request.Method -eq "PUT") {
+        $body = Read-JsonBody $request
+        foreach ($property in @("name", "username", "password", "phone", "role", "city")) {
+            $item.$property = $body.$property
+        }
+        Save-Db $db
+        return (Json-Response 200 $item)
+    }
+
+    if ($request.Method -eq "DELETE") {
+        $db.users = @($items | Where-Object { [int]$_.id -ne [int]$id })
+        $db.sessions = @($db.sessions | Where-Object { [int]$_.userId -ne [int]$id })
+        foreach ($event in $db.events) {
+            $event.rsvps = @($event.rsvps | Where-Object { [int]$_.userId -ne [int]$id })
+        }
+        Save-Db $db
+        return (Json-Response 200 @{ success = $true })
+    }
+
+    return (Json-Response 405 @{ error = "Method not allowed" })
 }
 
 function Handle-Collection($request, $key) {
-    $db = Load-Db
+    $result = Require-Session $request
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
+    $db = $result.Context.db
     if ($request.Method -eq "GET") {
         return (Json-Response 200 $db.$key)
+    }
+
+    if ($result.Context.user.role -ne "admin") {
+        return (Json-Response 403 @{ error = "Forbidden" })
     }
 
     if ($request.Method -eq "POST") {
@@ -127,7 +313,12 @@ function Handle-Collection($request, $key) {
 }
 
 function Handle-Item($request, $key, $id) {
-    $db = Load-Db
+    $result = Require-Session $request
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
+    $db = $result.Context.db
     $items = @($db.$key)
     $item = $items | Where-Object { [int]$_.id -eq [int]$id } | Select-Object -First 1
 
@@ -137,6 +328,10 @@ function Handle-Item($request, $key, $id) {
 
     if ($request.Method -eq "GET") {
         return (Json-Response 200 $item)
+    }
+
+    if ($result.Context.user.role -ne "admin") {
+        return (Json-Response 403 @{ error = "Forbidden" })
     }
 
     if ($request.Method -eq "PUT") {
@@ -152,11 +347,6 @@ function Handle-Item($request, $key, $id) {
 
     if ($request.Method -eq "DELETE") {
         $db.$key = @($items | Where-Object { [int]$_.id -ne [int]$id })
-        if ($key -eq "users") {
-            foreach ($event in $db.events) {
-                $event.rsvps = @($event.rsvps | Where-Object { [int]$_.userId -ne [int]$id })
-            }
-        }
         Save-Db $db
         return (Json-Response 200 @{ success = $true })
     }
@@ -165,23 +355,28 @@ function Handle-Item($request, $key, $id) {
 }
 
 function Handle-Rsvp($request, $eventId) {
+    $result = Require-Session $request "member"
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
     if ($request.Method -ne "POST") {
         return (Json-Response 405 @{ error = "Method not allowed" })
     }
 
-    $db = Load-Db
+    $db = $result.Context.db
     $event = $db.events | Where-Object { [int]$_.id -eq [int]$eventId } | Select-Object -First 1
     if (-not $event) {
         return (Json-Response 404 @{ error = "Event not found" })
     }
 
     $body = Read-JsonBody $request
-    $userId = [int]$body.userId
     $status = "$($body.status)"
     if (@("Going", "Maybe", "Not Going") -notcontains $status) {
         return (Json-Response 400 @{ error = "Invalid RSVP" })
     }
 
+    $userId = [int]$result.Context.user.id
     $existing = $event.rsvps | Where-Object { [int]$_.userId -eq $userId } | Select-Object -First 1
     if ($existing) {
         $existing.status = $status
@@ -197,6 +392,11 @@ function Handle-Rsvp($request, $eventId) {
 }
 
 function Handle-Reset($request) {
+    $result = Require-Session $request "admin"
+    if (-not $result.Context) {
+        return $result.ErrorResponse
+    }
+
     if ($request.Method -ne "POST") {
         return (Json-Response 405 @{ error = "Method not allowed" })
     }
@@ -208,25 +408,41 @@ function Handle-Reset($request) {
 function Route-Request($request) {
     $path = $request.Path
     if ($path.StartsWith("/api/")) {
+        if ($path -like "*auth/login*") {
+            return (Handle-AuthLogin $request)
+        }
+
+        if ($path -like "*auth/me*") {
+            return (Handle-AuthMe $request)
+        }
+
+        if ($path -like "*auth/logout*") {
+            return (Handle-AuthLogout $request)
+        }
+
+        if ($path -like "*api/reset*") {
+            return (Handle-Reset $request)
+        }
+
         $segments = @($path.Trim("/").Split("/", [System.StringSplitOptions]::RemoveEmptyEntries))
 
         if ($segments.Count -eq 2 -and $segments[1] -eq "health") {
             return (Json-Response 200 @{ status = "ok" })
         }
 
-        if ($segments.Count -eq 2 -and $segments[1] -eq "login") {
-            return (Handle-Login $request)
+        if ($segments.Count -eq 2 -and $segments[1] -eq "users") {
+            return (Handle-UsersCollection $request)
         }
 
-        if ($segments.Count -eq 2 -and $segments[1] -eq "reset") {
-            return (Handle-Reset $request)
+        if ($segments.Count -eq 3 -and $segments[1] -eq "users") {
+            return (Handle-UsersItem $request $segments[2])
         }
 
-        if ($segments.Count -eq 2 -and @("users", "events", "announcements", "vendors") -contains $segments[1]) {
+        if ($segments.Count -eq 2 -and @("events", "announcements", "vendors") -contains $segments[1]) {
             return (Handle-Collection $request $segments[1])
         }
 
-        if ($segments.Count -eq 3 -and @("users", "events", "announcements", "vendors") -contains $segments[1]) {
+        if ($segments.Count -eq 3 -and @("events", "announcements", "vendors") -contains $segments[1]) {
             return (Handle-Item $request $segments[1] $segments[2])
         }
 
@@ -237,13 +453,12 @@ function Route-Request($request) {
         return (Json-Response 404 @{ error = "API route not found" })
     }
 
-    $filePath = Resolve-StaticPath $path
+    $filePath = Resolve-StaticPath $path $request
     if (-not $filePath) {
         return (Json-Response 404 @{ error = "Not found" })
     }
 
-    $bytes = [System.IO.File]::ReadAllBytes($filePath)
-    return (New-Response 200 (Get-MimeType $filePath) $bytes)
+    return (File-Response $filePath)
 }
 
 function Receive-HttpRequest($client) {
@@ -283,6 +498,16 @@ function Receive-HttpRequest($client) {
         }
     }
 
+    $cookies = @{}
+    if ($headers.ContainsKey("cookie")) {
+        foreach ($piece in $headers["cookie"].Split(";")) {
+            $cookieParts = $piece.Trim().Split("=", 2)
+            if ($cookieParts.Count -eq 2) {
+                $cookies[$cookieParts[0]] = $cookieParts[1]
+            }
+        }
+    }
+
     $contentLength = if ($headers.ContainsKey("content-length")) { [int]$headers["content-length"] } else { 0 }
     $bodyStart = $headerEnd + 4
     $bodyBytes = @()
@@ -302,10 +527,14 @@ function Receive-HttpRequest($client) {
         }
     }
 
+    $rawTarget = $requestLine[1].Split("?")[0]
+    $normalizedPath = if ($rawTarget.StartsWith("http")) { ([Uri]$rawTarget).AbsolutePath } else { $rawTarget }
+
     return [PSCustomObject]@{
         Method = $requestLine[0].ToUpperInvariant()
-        Path = ($requestLine[1].Split("?")[0])
+        Path = $normalizedPath
         Headers = $headers
+        Cookies = $cookies
         Body = if ($contentLength -gt 0) { [System.Text.Encoding]::UTF8.GetString($bodyBytes, 0, $contentLength) } else { "" }
     }
 }
@@ -315,6 +544,8 @@ function Send-HttpResponse($client, $response) {
         200 = "OK"
         201 = "Created"
         400 = "Bad Request"
+        401 = "Unauthorized"
+        403 = "Forbidden"
         404 = "Not Found"
         405 = "Method Not Allowed"
         500 = "Internal Server Error"
@@ -325,7 +556,25 @@ function Send-HttpResponse($client, $response) {
         $statusText = "OK"
     }
 
-    $headerText = "HTTP/1.1 $($response.StatusCode) $statusText`r`nContent-Type: $($response.ContentType)`r`nContent-Length: $($response.BodyBytes.Length)`r`nConnection: close`r`n`r`n"
+    $headerLines = @(
+        "HTTP/1.1 $($response.StatusCode) $statusText",
+        "Content-Type: $($response.ContentType)",
+        "Content-Length: $($response.BodyBytes.Length)",
+        "Connection: close"
+    )
+
+    foreach ($key in $response.Headers.Keys) {
+        $value = $response.Headers[$key]
+        if ($value -is [System.Array]) {
+            foreach ($entry in $value) {
+                $headerLines += "${key}: $entry"
+            }
+        } else {
+            $headerLines += "${key}: $value"
+        }
+    }
+
+    $headerText = ($headerLines -join "`r`n") + "`r`n`r`n"
     $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($headerText)
     $stream = $client.GetStream()
     $stream.Write($headerBytes, 0, $headerBytes.Length)

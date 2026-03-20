@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Innova Zenix Admin Login</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="admin-login-body">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="eyebrow">Admin Access</div>
+      <h1>Club Dashboard Login</h1>
+      <p class="muted">Use a local admin account to open the dashboard and manage users, events, announcements, and vendors.</p>
+      <div class="landing-panel">
+        <div class="landing-item">
+          <strong>Demo Admin</strong>
+          <span>admin / admin123</span>
+        </div>
+      </div>
+      <form id="adminLoginForm">
+        <div class="input-group">
+          <label for="adminUsername">Username</label>
+          <input id="adminUsername" name="username" type="text" placeholder="admin" required>
+        </div>
+        <div class="input-group">
+          <label for="adminPassword">Password</label>
+          <input id="adminPassword" name="password" type="password" placeholder="admin123" required>
+        </div>
+        <button class="primary-button" type="submit">Open Dashboard</button>
+      </form>
+      <p class="helper-text"><a href="/">Back to member login</a></p>
+    </div>
+  </div>
+  <script src="/admin-login.js"></script>
+</body>
+</html>

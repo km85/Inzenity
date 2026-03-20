@@ -6,42 +6,54 @@
   <title>Innova Zenix Admin</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-  <div class="admin-shell">
-    <header class="admin-header">
-      <div>
-        <div class="eyebrow">Admin Dashboard</div>
-        <h1>Innova Zenix Community Admin</h1>
-        <p class="muted">Simple local tables for demo users, events, announcements, and vendors.</p>
+<body class="admin-body">
+  <div class="dashboard-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="eyebrow">Admin</div>
+        <h1>Innova Zenix</h1>
+        <p>Local dashboard</p>
       </div>
-      <div class="toolbar">
-        <a class="ghost-button" href="/">Open Member App</a>
-        <button class="danger-button" id="resetDataButton" type="button">Reset Seed Data</button>
+
+      <div class="sidebar-user">
+        <div class="eyebrow">Signed In</div>
+        <strong id="adminUserName">Admin Club</strong>
+        <span id="adminUserMeta">@admin</span>
       </div>
-    </header>
 
-    <div class="table-card">
-      <div class="stat-grid" id="stats"></div>
-    </div>
+      <nav class="sidebar-nav" id="sidebarNav"></nav>
 
-    <div class="section-header">
-      <h2>Manage Content</h2>
-      <div class="admin-tabs" id="adminTabs"></div>
-    </div>
+      <div class="sidebar-actions">
+        <a class="ghost-button sidebar-button" href="/">Open Member App</a>
+        <button class="ghost-button sidebar-button" id="resetDataButton" type="button">Reset Seed Data</button>
+        <button class="danger-button sidebar-button" id="adminLogoutButton" type="button">Log Out</button>
+      </div>
+    </aside>
 
-    <div class="admin-grid">
-      <section class="table-card">
-        <div id="tableArea"></div>
+    <main class="dashboard-main">
+      <header class="dashboard-header">
+        <div>
+          <div class="eyebrow" id="pageEyebrow">Dashboard</div>
+          <h2 id="pageTitle">Users</h2>
+          <p class="muted" id="pageDescription">Manage local demo member and admin accounts.</p>
+        </div>
+      </header>
+
+      <section class="overview-grid" id="stats"></section>
+
+      <section class="dashboard-content">
+        <div class="dashboard-card">
+          <div id="tableArea"></div>
+        </div>
+
+        <aside class="dashboard-card editor-card">
+          <div class="eyebrow">Editor</div>
+          <h3 id="formTitle">New Record</h3>
+          <form id="recordForm"></form>
+        </aside>
       </section>
-
-      <aside class="form-card admin">
-        <div class="eyebrow">Editor</div>
-        <h2 id="formTitle">New Record</h2>
-        <form id="recordForm"></form>
-      </aside>
-    </div>
+    </main>
   </div>
-
   <script src="/admin.js"></script>
 </body>
 </html>

@@ -9,40 +9,39 @@
 <body>
   <div id="loginView" class="login-wrap">
     <div class="login-card">
-      <div class="eyebrow">Member App</div>
+      <div class="eyebrow">Member Login</div>
       <h1>Innova Zenix Community</h1>
-      <p class="muted">See upcoming club plans, recent updates, and trusted vendors. Use a demo member below or sign in with a phone number.</p>
+      <p class="muted">Sign in with a local member account to see upcoming club plans, updates, and vendors.</p>
       <div class="landing-panel">
         <div class="landing-item">
-          <strong>Next Meetup</strong>
-          <span>Sunday Morning Cruise</span>
+          <strong>Demo Member</strong>
+          <span>raka / member123</span>
         </div>
         <div class="landing-item">
-          <strong>Latest Update</strong>
-          <span>Convoy etiquette reminder</span>
+          <strong>Alternative</strong>
+          <span>dina / member123</span>
         </div>
         <div class="landing-item">
-          <strong>Vendor Contact</strong>
-          <span>AutoLab Kemang on WhatsApp</span>
+          <strong>Admin</strong>
+          <span><a href="/admin">Open dashboard login</a></span>
         </div>
       </div>
       <div class="demo-strip">
-        <button class="pill" type="button" data-demo-phone="081234567890">Raka</button>
-        <button class="pill" type="button" data-demo-phone="081298765432">Dina</button>
-        <button class="pill" type="button" data-demo-phone="081377788899">Bimo</button>
+        <button class="pill" type="button" data-demo-username="raka" data-demo-password="member123">Raka</button>
+        <button class="pill" type="button" data-demo-username="dina" data-demo-password="member123">Dina</button>
+        <button class="pill" type="button" data-demo-username="bimo" data-demo-password="member123">Bimo</button>
       </div>
       <form id="loginForm">
         <div class="input-group">
-          <label for="loginName">Name</label>
-          <input id="loginName" name="name" type="text" placeholder="Optional for new members">
+          <label for="loginUsername">Username</label>
+          <input id="loginUsername" name="username" type="text" placeholder="raka" required>
         </div>
         <div class="input-group">
-          <label for="loginPhone">Phone Number</label>
-          <input id="loginPhone" name="phone" type="tel" placeholder="08xxxxxxxxxx" required>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" placeholder="member123" required>
         </div>
-        <button class="primary-button" type="submit">Continue</button>
+        <button class="primary-button" type="submit">Enter Community App</button>
       </form>
-      <p class="helper-text">Admin dashboard: <a href="/admin">http://localhost:8080/admin</a></p>
     </div>
   </div>
 

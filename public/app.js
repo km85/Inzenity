@@ -10,6 +10,7 @@ const screens = ["events", "event-detail", "announcements", "vendors", "profile"
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...options
   });
 
@@ -39,16 +40,15 @@ function formatShortDate(value) {
   });
 }
 
-function loadStoredUser() {
-  const raw = localStorage.getItem("innova-zenix-user");
-  if (raw) {
-    state.user = JSON.parse(raw);
-  }
+function showLogin() {
+  state.user = null;
+  document.getElementById("appView").classList.add("hidden");
+  document.getElementById("loginView").classList.remove("hidden");
 }
 
-function storeUser(user) {
-  state.user = user;
-  localStorage.setItem("innova-zenix-user", JSON.stringify(user));
+function showApp() {
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("appView").classList.remove("hidden");
 }
 
 function setActiveScreen(screen) {
@@ -71,7 +71,7 @@ function getUserRsvp(event) {
 function renderEvents() {
   const upcoming = [...state.events].sort((a, b) => new Date(a.date) - new Date(b.date));
   const nextEvent = upcoming[0];
-  const html = `
+  document.getElementById("screen-events").innerHTML = `
     ${nextEvent ? `
       <article class="club-spotlight">
         <div class="eyebrow">Next Meet</div>
@@ -111,7 +111,6 @@ function renderEvents() {
       `;
     }).join("")}
   `;
-  document.getElementById("screen-events").innerHTML = html;
 }
 
 function renderEventDetail(eventId) {
@@ -145,7 +144,7 @@ function renderEventDetail(eventId) {
       </div>
       <p>${event.description}</p>
       <div class="tag-row">
-        <span class="info-tag">Meet at: ${event.meetingPoint || "Shared in WhatsApp group"}</span>
+        <span class="info-tag">Meet at: ${event.meetingPoint || "Shared in group chat"}</span>
       </div>
       <div class="section-header">
         <h2>RSVP</h2>
@@ -153,7 +152,7 @@ function renderEventDetail(eventId) {
       </div>
       <div class="pill-group">
         ${["Going", "Maybe", "Not Going"].map((status) => `
-          <button class="status-button ${mine && mine.status === status ? "active" : ""}" data-rsvp="${status}" data-event="${event.id}" type="button">${status}</button>
+          <button class="status-button ${mine && mine.status === status ? "active" : ""}" data-rsvp="${status}" type="button">${status}</button>
         `).join("")}
       </div>
       <div class="rsvp-summary">
@@ -170,7 +169,7 @@ function renderEventDetail(eventId) {
     button.addEventListener("click", async () => {
       await api(`/api/events/${event.id}/rsvp`, {
         method: "POST",
-        body: JSON.stringify({ userId: state.user.id, status: button.dataset.rsvp })
+        body: JSON.stringify({ status: button.dataset.rsvp })
       });
       await loadData();
       navigate(location.hash || `#event-${event.id}`);
@@ -179,7 +178,7 @@ function renderEventDetail(eventId) {
 }
 
 function renderAnnouncements() {
-  const html = `
+  document.getElementById("screen-announcements").innerHTML = `
     <div class="section-header">
       <h2>Club Updates</h2>
       <span class="muted">${state.announcements.length} recent notes</span>
@@ -194,11 +193,10 @@ function renderAnnouncements() {
         </article>
       `).join("")}
   `;
-  document.getElementById("screen-announcements").innerHTML = html;
 }
 
 function renderVendors() {
-  const html = `
+  document.getElementById("screen-vendors").innerHTML = `
     <div class="section-header">
       <h2>Partner Directory</h2>
       <span class="muted">${state.vendors.length} trusted contacts</span>
@@ -218,7 +216,6 @@ function renderVendors() {
       </article>
     `).join("")}
   `;
-  document.getElementById("screen-vendors").innerHTML = html;
 }
 
 function renderProfile() {
@@ -235,6 +232,7 @@ function renderProfile() {
       <div class="eyebrow">${state.user.role}</div>
       <h3>${state.user.name}</h3>
       <div class="vendor-meta">
+        <span>@${state.user.username}</span>
         <span>${state.user.phone}</span>
         <span>${state.user.city}</span>
       </div>
@@ -242,21 +240,16 @@ function renderProfile() {
         <span class="info-tag">${myPlans} active plans</span>
         <span class="info-tag">${state.vendors.length} partner vendors</span>
       </div>
-      <p class="muted">This local MVP uses simple phone sign-in for quick member access. Event details, updates, and vendors stay connected from here.</p>
+      <p class="muted">Local MVP member account with username/password access. Events, updates, and vendor contacts stay behind login.</p>
       <div class="toolbar">
-        <a class="ghost-button" href="/admin">Open Admin</a>
         <a class="ghost-button" href="#vendors">Open Vendors</a>
+        <a class="ghost-button" href="/admin">Admin Login</a>
         <button class="danger-button" id="logoutButton" type="button">Log Out</button>
       </div>
     </article>
   `;
 
-  document.getElementById("logoutButton").addEventListener("click", () => {
-    localStorage.removeItem("innova-zenix-user");
-    state.user = null;
-    document.getElementById("appView").classList.add("hidden");
-    document.getElementById("loginView").classList.remove("hidden");
-  });
+  document.getElementById("logoutButton").addEventListener("click", handleLogout);
 }
 
 function renderChrome() {
@@ -279,8 +272,7 @@ function navigate(hash) {
   }
 
   if (hash.startsWith("#event-")) {
-    const eventId = Number(hash.replace("#event-", ""));
-    renderEventDetail(eventId);
+    renderEventDetail(Number(hash.replace("#event-", "")));
     setActiveScreen("event-detail");
     return;
   }
@@ -304,42 +296,68 @@ async function loadData() {
   state.vendors = vendors;
 }
 
-async function bootApp() {
-  loadStoredUser();
+async function restoreSession() {
+  try {
+    const result = await api("/api/auth/me");
+    if (result.user.role !== "member") {
+      await handleLogout(false);
+      return false;
+    }
+    state.user = result.user;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  if (state.user) {
-    document.getElementById("loginView").classList.add("hidden");
-    document.getElementById("appView").classList.remove("hidden");
+async function handleLogout(redirectToLogin = true) {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Ignore logout failures and clear UI state.
+  }
+
+  showLogin();
+  if (redirectToLogin) {
+    location.hash = "";
+  }
+}
+
+async function bootApp() {
+  const hasSession = await restoreSession();
+  if (hasSession) {
+    showApp();
     await loadData();
     renderChrome();
     navigate(location.hash || "#events");
+  } else {
+    showLogin();
   }
 
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload = {
-      name: form.get("name"),
-      phone: form.get("phone")
-    };
-    const result = await api("/api/login", {
+    const result = await api("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        username: form.get("username"),
+        password: form.get("password"),
+        scope: "member"
+      })
     });
 
-    storeUser(result.user);
-    document.getElementById("loginView").classList.add("hidden");
-    document.getElementById("appView").classList.remove("hidden");
+    state.user = result.user;
+    showApp();
     await loadData();
     renderChrome();
     location.hash = "#events";
   });
 
-  document.querySelectorAll("[data-demo-phone]").forEach((button) => {
+  document.querySelectorAll("[data-demo-username]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.getElementById("loginPhone").value = button.dataset.demoPhone;
-      document.getElementById("loginName").value = "";
-      document.getElementById("loginPhone").focus();
+      document.getElementById("loginUsername").value = button.dataset.demoUsername;
+      document.getElementById("loginPassword").value = button.dataset.demoPassword;
+      document.getElementById("loginPassword").focus();
     });
   });
 

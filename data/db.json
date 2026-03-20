@@ -1,172 +1,192 @@
 {
-  "users": [
-    {
-      "id": 1,
-      "name": "Raka Pratama",
-      "phone": "081234567890",
-      "role": "member",
-      "city": "Jakarta Selatan"
-    },
-    {
-      "id": 2,
-      "name": "Dina Wibowo",
-      "phone": "081298765432",
-      "role": "member",
-      "city": "Bandung"
-    },
-    {
-      "id": 3,
-      "name": "Bimo Saputra",
-      "phone": "081377788899",
-      "role": "member",
-      "city": "Bekasi"
-    },
-    {
-      "id": 4,
-      "name": "Nadya Mahendra",
-      "phone": "081288811122",
-      "role": "member",
-      "city": "Tangerang"
-    },
-    {
-      "id": 5,
-      "name": "Admin Club",
-      "phone": "081111111111",
-      "role": "admin",
-      "city": "Jakarta"
-    }
-  ],
-  "events": [
-    {
-      "id": 1,
-      "title": "Sunday Morning Cruise",
-      "date": "2026-03-29T06:45:00",
-      "location": "Senayan City, Jakarta",
-      "summary": "Early convoy, coffee stop, and photo session before the city gets busy.",
-      "description": "We gather from 06:45 at the south parking area, briefing at 07:10, then roll out together for a short cruise and breakfast. Bring your radio, club sticker, and full tank.",
-      "category": "Convoy",
-      "host": "Jakarta Chapter",
-      "meetingPoint": "South parking, near gate 3",
-      "rsvps": [
-        {
-          "userId": 1,
-          "status": "Going"
-        },
-        {
-          "userId": 2,
-          "status": "Maybe"
-        },
-        {
-          "userId": 3,
-          "status": "Going"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "Family Lunch Gathering",
-      "date": "2026-04-12T10:30:00",
-      "location": "The Breeze, BSD",
-      "summary": "Casual lunch for members, partners, and kids with a short club catch-up.",
-      "description": "This is a relaxed family meetup. Parking attendants will direct club cars to the same row. We will start with coffee, continue with lunch, then share the next touring plan and merchandise updates.",
-      "category": "Gathering",
-      "host": "BSD Chapter",
-      "meetingPoint": "West parking lobby",
-      "rsvps": [
-        {
-          "userId": 1,
-          "status": "Maybe"
-        },
-        {
-          "userId": 4,
-          "status": "Going"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Night Detailing Workshop",
-      "date": "2026-04-26T19:30:00",
-      "location": "AutoLab Kemang",
-      "summary": "Hands-on wash, coating care, and cabin maintenance workshop with partner vendors.",
-      "description": "A practical session for members who want to keep their cars clean between trips. The vendor team will show safe wash methods, quick interior care, and common paint mistakes to avoid.",
-      "category": "Workshop",
-      "host": "Partner Session",
-      "meetingPoint": "AutoLab front bay",
-      "rsvps": []
-    },
-    {
-      "id": 4,
-      "title": "Ramadan Evening Meetup",
-      "date": "2026-03-28T17:00:00",
-      "location": "Bintaro XChange",
-      "summary": "Short buka puasa meetup with chapter leads and new members.",
-      "description": "New members are especially welcome. We will gather before maghrib, break fast together, and leave by 20:00. No convoy, just an easy social evening.",
-      "category": "Community",
-      "host": "Community Team",
-      "meetingPoint": "Lower ground valet side",
-      "rsvps": [
-        {
-          "userId": 2,
-          "status": "Going"
-        }
-      ]
-    }
-  ],
-  "announcements": [
-    {
-      "id": 1,
-      "title": "Convoy etiquette reminder for Sunday drive",
-      "content": "Please keep safe spacing, use hazard lights only when needed, and wait for the lead car briefing before departure.",
-      "createdAt": "2026-03-19T20:15:00"
-    },
-    {
-      "id": 2,
-      "title": "New member stickers are ready",
-      "content": "Sticker packs and windshield numbers can be collected at the Ramadan Evening Meetup or the Family Lunch Gathering.",
-      "createdAt": "2026-03-18T09:30:00"
-    },
-    {
-      "id": 3,
-      "title": "Vendor benefits updated",
-      "content": "The partner directory now includes new detailing and tire perks for active members. Check the vendor page before booking.",
-      "createdAt": "2026-03-17T14:10:00"
-    }
-  ],
-  "vendors": [
-    {
-      "id": 1,
-      "name": "AutoLab Kemang",
-      "category": "Detailing",
-      "description": "Coating maintenance, paint correction, and pre-roadtrip wash packages for club members.",
-      "whatsapp": "628123450001"
-    },
-    {
-      "id": 2,
-      "name": "Zenix Tire Hub",
-      "category": "Tires & Alignment",
-      "description": "Touring tire checks, balancing, and alignment support before convoy weekends.",
-      "whatsapp": "628123450002"
-    },
-    {
-      "id": 3,
-      "name": "Cabin Fresh ID",
-      "category": "Interior Care",
-      "description": "Interior detailing, odor treatment, and child-seat area deep cleaning.",
-      "whatsapp": "628123450003"
-    },
-    {
-      "id": 4,
-      "name": "Audio Garage PIK",
-      "category": "Audio & Accessories",
-      "description": "Dashcam installs, speaker upgrades, and practical family-car accessories.",
-      "whatsapp": "628123450004"
-    }
-  ],
-  "nextIds": {
-    "users": 6,
-    "events": 5,
-    "announcements": 4,
-    "vendors": 5
-  }
+    "users":  [
+                  {
+                      "id":  1,
+                      "name":  "Raka Pratama",
+                      "username":  "raka",
+                      "password":  "member123",
+                      "phone":  "081234567890",
+                      "role":  "member",
+                      "city":  "Jakarta Selatan"
+                  },
+                  {
+                      "id":  2,
+                      "name":  "Dina Wibowo",
+                      "username":  "dina",
+                      "password":  "member123",
+                      "phone":  "081298765432",
+                      "role":  "member",
+                      "city":  "Bandung"
+                  },
+                  {
+                      "id":  3,
+                      "name":  "Bimo Saputra",
+                      "username":  "bimo",
+                      "password":  "member123",
+                      "phone":  "081377788899",
+                      "role":  "member",
+                      "city":  "Bekasi"
+                  },
+                  {
+                      "id":  4,
+                      "name":  "Nadya Mahendra",
+                      "username":  "nadya",
+                      "password":  "member123",
+                      "phone":  "081288811122",
+                      "role":  "member",
+                      "city":  "Tangerang"
+                  },
+                  {
+                      "id":  5,
+                      "name":  "Admin Club",
+                      "username":  "admin",
+                      "password":  "admin123",
+                      "phone":  "081111111111",
+                      "role":  "admin",
+                      "city":  "Jakarta"
+                  }
+              ],
+    "events":  [
+                   {
+                       "id":  1,
+                       "title":  "Sunday Morning Cruise",
+                       "date":  "2026-03-29T06:45:00",
+                       "location":  "Senayan City, Jakarta",
+                       "summary":  "Early convoy, coffee stop, and photo session before the city gets busy.",
+                       "description":  "We gather from 06:45 at the south parking area, briefing at 07:10, then roll out together for a short cruise and breakfast. Bring your radio, club sticker, and full tank.",
+                       "category":  "Convoy",
+                       "host":  "Jakarta Chapter",
+                       "meetingPoint":  "South parking, near gate 3",
+                       "rsvps":  [
+                                     {
+                                         "userId":  1,
+                                         "status":  "Going"
+                                     },
+                                     {
+                                         "userId":  2,
+                                         "status":  "Maybe"
+                                     },
+                                     {
+                                         "userId":  3,
+                                         "status":  "Going"
+                                     }
+                                 ]
+                   },
+                   {
+                       "id":  2,
+                       "title":  "Family Lunch Gathering",
+                       "date":  "2026-04-12T10:30:00",
+                       "location":  "The Breeze, BSD",
+                       "summary":  "Casual lunch for members, partners, and kids with a short club catch-up.",
+                       "description":  "This is a relaxed family meetup. Parking attendants will direct club cars to the same row. We will start with coffee, continue with lunch, then share the next touring plan and merchandise updates.",
+                       "category":  "Gathering",
+                       "host":  "BSD Chapter",
+                       "meetingPoint":  "West parking lobby",
+                       "rsvps":  [
+                                     {
+                                         "userId":  1,
+                                         "status":  "Maybe"
+                                     },
+                                     {
+                                         "userId":  4,
+                                         "status":  "Going"
+                                     }
+                                 ]
+                   },
+                   {
+                       "id":  3,
+                       "title":  "Night Detailing Workshop",
+                       "date":  "2026-04-26T19:30:00",
+                       "location":  "AutoLab Kemang",
+                       "summary":  "Hands-on wash, coating care, and cabin maintenance workshop with partner vendors.",
+                       "description":  "A practical session for members who want to keep their cars clean between trips. The vendor team will show safe wash methods, quick interior care, and common paint mistakes to avoid.",
+                       "category":  "Workshop",
+                       "host":  "Partner Session",
+                       "meetingPoint":  "AutoLab front bay",
+                       "rsvps":  [
+
+                                 ]
+                   },
+                   {
+                       "id":  4,
+                       "title":  "Ramadan Evening Meetup",
+                       "date":  "2026-03-28T17:00:00",
+                       "location":  "Bintaro XChange",
+                       "summary":  "Short buka puasa meetup with chapter leads and new members.",
+                       "description":  "New members are especially welcome. We will gather before maghrib, break fast together, and leave by 20:00. No convoy, just an easy social evening.",
+                       "category":  "Community",
+                       "host":  "Community Team",
+                       "meetingPoint":  "Lower ground valet side",
+                       "rsvps":  [
+                                     {
+                                         "userId":  2,
+                                         "status":  "Going"
+                                     }
+                                 ]
+                   }
+               ],
+    "announcements":  [
+                          {
+                              "id":  1,
+                              "title":  "Convoy etiquette reminder for Sunday drive",
+                              "content":  "Please keep safe spacing, use hazard lights only when needed, and wait for the lead car briefing before departure.",
+                              "createdAt":  "2026-03-19T20:15:00"
+                          },
+                          {
+                              "id":  2,
+                              "title":  "New member stickers are ready",
+                              "content":  "Sticker packs and windshield numbers can be collected at the Ramadan Evening Meetup or the Family Lunch Gathering.",
+                              "createdAt":  "2026-03-18T09:30:00"
+                          },
+                          {
+                              "id":  3,
+                              "title":  "Vendor benefits updated",
+                              "content":  "The partner directory now includes new detailing and tire perks for active members. Check the vendor page before booking.",
+                              "createdAt":  "2026-03-17T14:10:00"
+                          }
+                      ],
+    "vendors":  [
+                    {
+                        "id":  1,
+                        "name":  "AutoLab Kemang",
+                        "category":  "Detailing",
+                        "description":  "Coating maintenance, paint correction, and pre-roadtrip wash packages for club members.",
+                        "whatsapp":  "628123450001"
+                    },
+                    {
+                        "id":  2,
+                        "name":  "Zenix Tire Hub",
+                        "category":  "Tires \u0026 Alignment",
+                        "description":  "Touring tire checks, balancing, and alignment support before convoy weekends.",
+                        "whatsapp":  "628123450002"
+                    },
+                    {
+                        "id":  3,
+                        "name":  "Cabin Fresh ID",
+                        "category":  "Interior Care",
+                        "description":  "Interior detailing, odor treatment, and child-seat area deep cleaning.",
+                        "whatsapp":  "628123450003"
+                    },
+                    {
+                        "id":  4,
+                        "name":  "Audio Garage PIK",
+                        "category":  "Audio \u0026 Accessories",
+                        "description":  "Dashcam installs, speaker upgrades, and practical family-car accessories.",
+                        "whatsapp":  "628123450004"
+                    }
+                ],
+    "sessions":  [
+                     {
+                         "token":  "6996602b4f8642a2bed5004f3fb80196",
+                         "userId":  5,
+                         "role":  "admin",
+                         "createdAt":  "2026-03-20T19:08:59"
+                     }
+                 ],
+    "nextIds":  {
+                    "users":  6,
+                    "events":  5,
+                    "announcements":  4,
+                    "vendors":  5
+                }
 }

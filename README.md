@@ -8,7 +8,8 @@ This project uses plain HTML, CSS, JavaScript, and a small PowerShell TCP-based 
 
 ## Features
 
-- Phone number login for members
+- Username and password login for members
+- Username and password login for admins
 - Events list and event detail
 - RSVP with Going / Maybe / Not Going
 - Announcements list
@@ -27,8 +28,10 @@ This project uses plain HTML, CSS, JavaScript, and a small PowerShell TCP-based 
 - `data/db.json`: local working data store, created on first run
 - `public/index.html`: member app
 - `public/admin.html`: admin dashboard
+- `public/admin-login.html`: admin login page
 - `public/app.js`: member app logic
 - `public/admin.js`: admin logic
+- `public/admin-login.js`: admin login logic
 - `public/styles.css`: shared styles
 
 ## Local Setup
@@ -64,16 +67,18 @@ Stop the server with `Ctrl+C` in the PowerShell window running it.
 
 ## Demo Login
 
-Use any seeded phone number, for example:
+Member demo accounts:
 
-- `081234567890`
-- `081298765432`
-- `081377788899`
-- `081111111111`
+- `raka / member123`
+- `dina / member123`
+- `bimo / member123`
+- `nadya / member123`
 
-You can also enter a new phone number and the app will create a local member record automatically.
+Admin demo account:
 
-The landing page includes quick demo buttons for seeded member accounts.
+- `admin / admin123`
+
+The member landing page includes quick demo buttons for seeded member accounts.
 
 ## Notes
 
