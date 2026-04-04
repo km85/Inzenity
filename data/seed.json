@@ -173,11 +173,103 @@
       "whatsapp": "628123450004"
     }
   ],
+  "banners": [
+    {
+      "id": 1,
+      "title": "Sunday Morning Cruise",
+      "image": "hero-cover-1",
+      "order": 1
+    },
+    {
+      "id": 2,
+      "title": "Family Lunch Gathering",
+      "image": "hero-cover-2",
+      "order": 2
+    },
+    {
+      "id": 3,
+      "title": "Night Detailing Workshop",
+      "image": "hero-cover-3",
+      "order": 3
+    }
+  ],
+  "sponsors": [
+    {
+      "id": 1,
+      "name": "AutoLab Kemang",
+      "logo": "sponsor-tone-1"
+    },
+    {
+      "id": 2,
+      "name": "Zenix Tire Hub",
+      "logo": "sponsor-tone-2"
+    },
+    {
+      "id": 3,
+      "name": "Cabin Fresh ID",
+      "logo": "sponsor-tone-3"
+    },
+    {
+      "id": 4,
+      "name": "Audio Garage PIK",
+      "logo": "sponsor-tone-4"
+    }
+  ],
+  "news": [
+    {
+      "id": 1,
+      "title": "Convoy etiquette reminder for Sunday drive",
+      "image": "news-cover-1",
+      "category": "Club Update",
+      "date": "2026-03-19"
+    },
+    {
+      "id": 2,
+      "title": "New member stickers are ready",
+      "image": "news-cover-2",
+      "category": "Community",
+      "date": "2026-03-18"
+    },
+    {
+      "id": 3,
+      "title": "Vendor benefits updated",
+      "image": "news-cover-3",
+      "category": "Partner Info",
+      "date": "2026-03-17"
+    }
+  ],
+  "merchandise": [
+    {
+      "id": 1,
+      "title": "Club T-Shirt",
+      "image": "merch-cover-red",
+      "description": "Soft cotton club tee with front chest logo and back convoy print.",
+      "price": "Rp 185.000"
+    },
+    {
+      "id": 2,
+      "title": "Windshield Banner",
+      "image": "merch-cover-dark",
+      "description": "Clean club banner cut for meetups, cruising days, and chapter gatherings.",
+      "price": "Rp 95.000"
+    },
+    {
+      "id": 3,
+      "title": "Travel Tumbler",
+      "image": "merch-cover-sand",
+      "description": "Insulated tumbler for long drives with engraved club mark.",
+      "price": "Rp 150.000"
+    }
+  ],
   "sessions": [],
   "nextIds": {
     "users": 6,
     "events": 5,
     "announcements": 4,
-    "vendors": 5
+    "vendors": 5,
+    "banners": 4,
+    "sponsors": 5,
+    "news": 4,
+    "merchandise": 4
   }
 }

@@ -5,7 +5,11 @@ const adminState = {
     users: [],
     events: [],
     announcements: [],
-    vendors: []
+    vendors: [],
+    banners: [],
+    sponsors: [],
+    news: [],
+    merchandise: []
   },
   editingId: null
 };
@@ -67,6 +71,55 @@ const configs = {
       { name: "description", label: "Description", type: "textarea", required: true },
       { name: "whatsapp", label: "WhatsApp", type: "text", required: true }
     ]
+  },
+  banners: {
+    title: "Banners",
+    description: "Manage hero banners shown on the member home screen.",
+    endpoint: "/api/banners",
+    columns: ["title", "image", "order"],
+    labels: { title: "Title", image: "Image", order: "Order" },
+    fields: [
+      { name: "title", label: "Title", type: "text", required: true },
+      { name: "image", label: "Image", type: "text", required: true },
+      { name: "order", label: "Order", type: "number", required: true }
+    ]
+  },
+  sponsors: {
+    title: "Sponsors",
+    description: "Manage sponsor logos and names for the member home screen.",
+    endpoint: "/api/sponsors",
+    columns: ["name", "logo"],
+    labels: { name: "Name", logo: "Logo" },
+    fields: [
+      { name: "name", label: "Name", type: "text", required: true },
+      { name: "logo", label: "Logo", type: "text", required: true }
+    ]
+  },
+  news: {
+    title: "News",
+    description: "Manage latest news cards shown on the member home screen.",
+    endpoint: "/api/news",
+    columns: ["title", "category", "date", "image"],
+    labels: { title: "Title", category: "Category", date: "Date", image: "Image" },
+    fields: [
+      { name: "title", label: "Title", type: "text", required: true },
+      { name: "image", label: "Image", type: "text", required: true },
+      { name: "category", label: "Category", type: "text", required: true },
+      { name: "date", label: "Date", type: "date", required: true }
+    ]
+  },
+  merchandise: {
+    title: "Merchandise",
+    description: "Manage merchandise cards shown in the member store screen.",
+    endpoint: "/api/merchandise",
+    columns: ["title", "price", "image", "description"],
+    labels: { title: "Title", price: "Price", image: "Image", description: "Description" },
+    fields: [
+      { name: "title", label: "Title", type: "text", required: true },
+      { name: "image", label: "Image", type: "text", required: true },
+      { name: "description", label: "Description", type: "textarea", required: true },
+      { name: "price", label: "Price", type: "text", required: true }
+    ]
   }
 };
 
@@ -74,6 +127,7 @@ async function request(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
+    cache: "no-store",
     ...options
   });
   const data = await response.json();
@@ -115,7 +169,11 @@ function renderStats() {
     { label: "Users", value: adminState.items.users.length },
     { label: "Events", value: adminState.items.events.length },
     { label: "Announcements", value: adminState.items.announcements.length },
-    { label: "Vendors", value: adminState.items.vendors.length }
+    { label: "Vendors", value: adminState.items.vendors.length },
+    { label: "Banners", value: adminState.items.banners.length },
+    { label: "Sponsors", value: adminState.items.sponsors.length },
+    { label: "News", value: adminState.items.news.length },
+    { label: "Merch", value: adminState.items.merchandise.length }
   ];
 
   document.getElementById("stats").innerHTML = stats.map((item) => `
@@ -174,24 +232,50 @@ function renderTable() {
 
   document.getElementById("newRecordButton").addEventListener("click", () => {
     adminState.editingId = null;
+    openModal();
     renderForm();
   });
 
   document.querySelectorAll("[data-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       adminState.editingId = Number(button.dataset.edit);
+      openModal();
       renderForm();
     });
   });
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await request(`${config.endpoint}/${button.dataset.delete}`, { method: "DELETE" });
-      adminState.editingId = null;
-      await loadAdminData();
-      renderCurrentTab();
+      await handleDeleteRecord(button.dataset.delete);
     });
   });
+}
+
+function openModal() {
+  document.getElementById("recordModal").classList.remove("hidden");
+  document.getElementById("modalBackdrop").classList.remove("hidden");
+}
+
+function closeModal() {
+  document.getElementById("recordModal").classList.add("hidden");
+  document.getElementById("modalBackdrop").classList.add("hidden");
+}
+
+async function handleDeleteRecord(id) {
+  const config = configs[adminState.tab];
+  const itemLabel = config.title.endsWith("s") ? config.title.slice(0, -1) : config.title;
+  const ok = window.confirm(`Delete this ${itemLabel.toLowerCase()}?`);
+  if (!ok) {
+    return;
+  }
+
+  await request(`${config.endpoint}/${id}`, { method: "DELETE" });
+  adminState.items[adminState.tab] = adminState.items[adminState.tab].filter((item) => item.id !== Number(id));
+  if (adminState.editingId === Number(id)) {
+      adminState.editingId = null;
+      closeModal();
+    }
+  renderCurrentTab();
 }
 
 function normalizeForInput(field, value) {
@@ -200,6 +284,9 @@ function normalizeForInput(field, value) {
   }
   if (field.type === "datetime-local") {
     return new Date(value).toISOString().slice(0, 16);
+  }
+  if (field.type === "date") {
+    return new Date(value).toISOString().slice(0, 10);
   }
   return value;
 }
@@ -263,6 +350,7 @@ function renderForm() {
 
   document.getElementById("clearFormButton").addEventListener("click", () => {
     adminState.editingId = null;
+    closeModal();
     renderForm();
   });
 
@@ -271,9 +359,14 @@ function renderForm() {
     const payload = serializeForm(config, new FormData(event.currentTarget), existing);
     const method = existing ? "PUT" : "POST";
     const url = existing ? `${config.endpoint}/${existing.id}` : config.endpoint;
-    await request(url, { method, body: JSON.stringify(payload) });
+    const saved = await request(url, { method, body: JSON.stringify(payload) });
+    if (existing) {
+      adminState.items[adminState.tab] = adminState.items[adminState.tab].map((item) => item.id === existing.id ? saved : item);
+    } else {
+      adminState.items[adminState.tab] = [...adminState.items[adminState.tab], saved];
+    }
     adminState.editingId = null;
-    await loadAdminData();
+    closeModal();
     renderCurrentTab();
   });
 }
@@ -317,11 +410,14 @@ async function bootAdmin() {
   document.getElementById("resetDataButton").addEventListener("click", async () => {
     await request("/api/reset", { method: "POST" });
     adminState.editingId = null;
+    closeModal();
     await loadAdminData();
     renderCurrentTab();
   });
 
   document.getElementById("adminLogoutButton").addEventListener("click", logoutAdmin);
+  document.getElementById("closeModalButton").addEventListener("click", closeModal);
+  document.getElementById("modalBackdrop").addEventListener("click", closeModal);
 }
 
 bootAdmin().catch((error) => {

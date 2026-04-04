@@ -11,7 +11,7 @@
     <div class="login-card">
       <div class="eyebrow">Member Login</div>
       <h1>Innova Zenix Community</h1>
-      <p class="muted">Sign in with a local member account to see upcoming club plans, updates, and vendors.</p>
+      <p class="muted">Sign in with a local member account to enter the club app.</p>
       <div class="landing-panel">
         <div class="landing-item">
           <strong>Demo Member</strong>
@@ -45,28 +45,50 @@
     </div>
   </div>
 
-  <div id="appView" class="shell hidden">
-    <main class="mobile-app">
-      <section class="hero-card">
-        <div class="eyebrow">Community Hub</div>
-        <h1 id="welcomeName"></h1>
-        <p id="welcomeMeta" class="muted"></p>
-      </section>
+  <div id="appView" class="member-shell hidden">
+    <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
 
-      <section id="screen-events" class="screen"></section>
+    <aside id="sideDrawer" class="side-drawer hidden">
+      <div class="drawer-top">
+        <div class="avatar-circle" id="drawerAvatar">R</div>
+        <div>
+          <strong id="drawerName">Raka Pratama</strong>
+          <p id="drawerUsername" class="muted">@raka</p>
+        </div>
+      </div>
+      <nav class="drawer-menu">
+        <button class="drawer-link" type="button" data-drawer-target="member-info">Member Information</button>
+        <button class="drawer-link" type="button" data-drawer-target="events">Event Registration</button>
+        <button class="drawer-link" type="button" data-drawer-target="merchandise">Merchandise</button>
+        <button class="drawer-link danger-link" id="drawerLogoutButton" type="button">Logout</button>
+      </nav>
+    </aside>
+
+    <header class="member-header">
+      <button id="menuButton" class="icon-button" type="button" aria-label="Open menu">☰</button>
+      <div class="member-header-copy">
+        <p class="header-kicker">Good to see you</p>
+        <h1 id="greetingName">Raka</h1>
+      </div>
+      <a href="#home" class="brand-chip" aria-label="Home">IZ</a>
+    </header>
+
+    <main class="member-main">
+      <section id="screen-home" class="screen"></section>
+      <section id="screen-member-info" class="screen hidden"></section>
+      <section id="screen-events" class="screen hidden"></section>
       <section id="screen-event-detail" class="screen hidden"></section>
-      <section id="screen-announcements" class="screen hidden"></section>
-      <section id="screen-vendors" class="screen hidden"></section>
-      <section id="screen-profile" class="screen hidden"></section>
+      <section id="screen-merchandise" class="screen hidden"></section>
     </main>
 
-    <nav class="bottom-nav">
-      <div class="nav-bar">
-        <a href="#events" class="nav-link" data-screen="events">Events</a>
-        <a href="#announcements" class="nav-link" data-screen="announcements">Updates</a>
-        <a href="#vendors" class="nav-link" data-screen="vendors">Vendors</a>
-        <a href="#profile" class="nav-link" data-screen="profile">Profile</a>
-      </div>
+    <nav class="member-bottom-nav">
+      <a href="#home" class="member-nav-link" data-screen="home">Home</a>
+      <a href="#events" class="member-nav-link" data-screen="events">Events</a>
+      <a href="#home" class="member-nav-link brand-nav-link" data-screen="home" aria-label="Brand home">
+        <span class="brand-nav-button">IZ</span>
+      </a>
+      <a href="#merchandise" class="member-nav-link" data-screen="merchandise">Merch</a>
+      <a href="#member-info" class="member-nav-link" data-screen="member-info">Info</a>
     </nav>
   </div>
 

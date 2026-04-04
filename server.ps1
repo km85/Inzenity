@@ -438,11 +438,11 @@ function Route-Request($request) {
             return (Handle-UsersItem $request $segments[2])
         }
 
-        if ($segments.Count -eq 2 -and @("events", "announcements", "vendors") -contains $segments[1]) {
+        if ($segments.Count -eq 2 -and @("events", "announcements", "vendors", "banners", "sponsors", "news", "merchandise") -contains $segments[1]) {
             return (Handle-Collection $request $segments[1])
         }
 
-        if ($segments.Count -eq 3 -and @("events", "announcements", "vendors") -contains $segments[1]) {
+        if ($segments.Count -eq 3 -and @("events", "announcements", "vendors", "banners", "sponsors", "news", "merchandise") -contains $segments[1]) {
             return (Handle-Item $request $segments[1] $segments[2])
         }
 
