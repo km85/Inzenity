@@ -1,0 +1,25 @@
+{
+  "name": "inzenity",
+  "version": "1.0.0",
+  "description": "Lightweight local MVP for an Innova Zenix community app with a mobile-first member experience and a simple admin dashboard.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/km85/Inzenity.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/km85/Inzenity/issues"
+  },
+  "homepage": "https://github.com/km85/Inzenity#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  }
+}

@@ -8,14 +8,23 @@ const state = {
   news: [],
   merchandise: [],
   heroIndex: 0,
-  heroTimer: null
+  heroTimer: null,
+  carProfile: { nickname: "", carModel: "", carYear: "", plateNumber: "" },
+  theme: "dark"
 };
 
-const screens = ["home", "member-info", "events", "event-detail", "merchandise"];
+const screens = ["home", "my-zenix", "events", "event-detail", "vendors", "merchandise"];
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+  const base = window.API_BASE_URL || "";
+  const token = localStorage.getItem("api_token");
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token ? { "X-API-Token": token } : {}),
+    ...options.headers
+  };
+  const response = await fetch(base + path, {
+    headers,
     credentials: "same-origin",
     ...options
   });
@@ -44,6 +53,56 @@ function formatShortDate(value) {
     month: "short",
     year: "numeric"
   });
+}
+
+function carKey() {
+  return `zenix:car:${state.user?.username || "guest"}`;
+}
+
+function themeKey() {
+  return "zenix:theme";
+}
+
+function loadTheme() {
+  const saved = localStorage.getItem(themeKey());
+  if (saved === "light" || saved === "dark") {
+    state.theme = saved;
+  } else {
+    state.theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  applyTheme();
+}
+
+function applyTheme() {
+  document.body.setAttribute("data-theme", state.theme);
+  const icon = document.getElementById("themeIcon");
+  const label = document.getElementById("themeLabel");
+  if (icon) icon.textContent = state.theme === "dark" ? "☀" : "🌙";
+  if (label) label.textContent = state.theme === "dark" ? "Light mode" : "Dark mode";
+}
+
+function toggleTheme() {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  localStorage.setItem(themeKey(), state.theme);
+  applyTheme();
+}
+
+function loadCarProfile() {
+  if (!state.user) return;
+  try {
+    const saved = localStorage.getItem(carKey());
+    if (saved) {
+      state.carProfile = { ...state.carProfile, ...JSON.parse(saved) };
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+}
+
+function saveCarProfile(profile) {
+  state.carProfile = { ...state.carProfile, ...profile };
+  localStorage.setItem(carKey(), JSON.stringify(state.carProfile));
+  renderMyZenix();
 }
 
 function showLogin() {
@@ -127,6 +186,8 @@ function renderHome() {
   const activeSlide = slides[state.heroIndex % slides.length] || null;
   const newsCards = getNewsCards();
   const sponsors = getSponsors();
+  const car = state.carProfile;
+  const carDisplay = car.carModel || car.nickname || state.user.name.split(" ")[0] + "'s Zenix";
 
   document.getElementById("screen-home").innerHTML = `
     <section class="home-hero-card">
@@ -188,11 +249,16 @@ function renderHome() {
     </section>
 
     <section class="content-section">
-      <article class="community-card">
+      <div class="section-title-row">
         <div>
           <p class="section-kicker">Community</p>
           <h3>Follow Us</h3>
-          <p>Stay close to chapter updates, event photos, and club stories on Instagram.</p>
+        </div>
+      </div>
+      <article class="community-card">
+        <div>
+          <p class="section-kicker">Instagram</p>
+          <p>Stay close to chapter updates, event photos, and club stories.</p>
         </div>
         <a class="primary-button" href="https://instagram.com" target="_blank" rel="noreferrer">Open Instagram</a>
       </article>
@@ -207,33 +273,56 @@ function renderHome() {
   });
 }
 
-function renderMemberInfo() {
+function renderMyZenix() {
   const joinedEvents = state.events.filter((event) => {
     const rsvp = getUserRsvp(event);
     return rsvp && rsvp.status !== "Not Going";
   }).length;
+  const car = state.carProfile;
+  const hasCar = car.carModel || car.nickname || car.plateNumber || car.carYear;
 
-  document.getElementById("screen-member-info").innerHTML = `
+  document.getElementById("screen-my-zenix").innerHTML = `
     <section class="content-section">
       <div class="section-title-row">
         <div>
-          <p class="section-kicker">Member Information</p>
-          <h3>${state.user.name}</h3>
+          <p class="section-kicker">My Zenix</p>
+          <h3>${car.nickname || car.carModel || "Your Innova Zenix"}</h3>
         </div>
       </div>
+
+      <article class="car-profile-card">
+        <div class="car-hero">🚙</div>
+        <div class="car-profile-body">
+          <div class="car-detail-grid">
+            <div class="car-detail-item">
+              <span>Model</span>
+              <strong>${car.carModel || "Not set"}</strong>
+            </div>
+            <div class="car-detail-item">
+              <span>Year</span>
+              <strong>${car.carYear || "Not set"}</strong>
+            </div>
+            <div class="car-detail-item">
+              <span>Plate</span>
+              <strong>${car.plateNumber || "Not set"}</strong>
+            </div>
+            <div class="car-detail-item">
+              <span>Nickname</span>
+              <strong>${car.nickname || "Not set"}</strong>
+            </div>
+          </div>
+        </div>
+      </article>
+
       <article class="member-card">
         <div class="member-card-top">
           <div class="avatar-circle large-avatar">${state.user.name.charAt(0)}</div>
           <div>
             <strong>${state.user.name}</strong>
-            <p class="muted">@${state.user.username}</p>
+            <p class="muted">@${state.user.username} · ${state.user.role}</p>
           </div>
         </div>
         <div class="member-detail-grid">
-          <div class="member-detail-item">
-            <span>Role</span>
-            <strong>${state.user.role}</strong>
-          </div>
           <div class="member-detail-item">
             <span>Phone</span>
             <strong>${state.user.phone}</strong>
@@ -246,10 +335,63 @@ function renderMemberInfo() {
             <span>Active Events</span>
             <strong>${joinedEvents}</strong>
           </div>
+          <div class="member-detail-item">
+            <span>Member ID</span>
+            <strong>#${state.user.id.toString().padStart(4, "0")}</strong>
+          </div>
         </div>
+      </article>
+
+      <article class="member-card">
+        <div class="section-title-row">
+          <div>
+            <p class="section-kicker">Edit Profile</p>
+            <h3>Update Car &amp; Member Info</h3>
+          </div>
+        </div>
+        <form id="carProfileForm">
+          <div class="input-group">
+            <label for="carNickname">Car Nickname</label>
+            <input id="carNickname" name="nickname" type="text" value="${car.nickname}" placeholder="e.g. Black Pearl">
+          </div>
+          <div class="input-group">
+            <label for="carModel">Car Model</label>
+            <input id="carModel" name="carModel" type="text" value="${car.carModel}" placeholder="e.g. Toyota Innova Zenix G">
+          </div>
+          <div class="input-group">
+            <label for="carYear">Year</label>
+            <input id="carYear" name="carYear" type="text" value="${car.carYear}" placeholder="e.g. 2024">
+          </div>
+          <div class="input-group">
+            <label for="plateNumber">Plate Number</label>
+            <input id="plateNumber" name="plateNumber" type="text" value="${car.plateNumber}" placeholder="e.g. B 1234 XYZ">
+          </div>
+          <div class="car-form-actions">
+            <button class="primary-button" type="submit">Save Changes</button>
+            <button class="ghost-button" type="button" id="clearCarProfile">Reset</button>
+          </div>
+        </form>
       </article>
     </section>
   `;
+
+  document.getElementById("carProfileForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    saveCarProfile({
+      nickname: form.get("nickname"),
+      carModel: form.get("carModel"),
+      carYear: form.get("carYear"),
+      plateNumber: form.get("plateNumber")
+    });
+    alert("Profile saved locally.");
+  });
+
+  document.getElementById("clearCarProfile")?.addEventListener("click", () => {
+    localStorage.removeItem(carKey());
+    state.carProfile = { nickname: "", carModel: "", carYear: "", plateNumber: "" };
+    renderMyZenix();
+  });
 }
 
 function renderEvents() {
@@ -283,7 +425,7 @@ function renderEvents() {
                 </div>
                 <div class="tag-row">
                   <span class="info-tag">${mine ? `RSVP: ${mine.status}` : "Open RSVP"}</span>
-                  <span class="info-tag">${event.meetingPoint || "Meeting point shared later"}</span>
+                  <span class="info-tag">${event.meetingPoint || "Meeting point TBA"}</span>
                 </div>
                 <a class="primary-button" href="#event-${event.id}">View Event</a>
               </div>
@@ -372,6 +514,50 @@ function renderEventDetail(eventId) {
   });
 }
 
+function renderVendors(searchQuery = "") {
+  const query = searchQuery.toLowerCase();
+  const filtered = state.vendors.filter((v) =>
+    v.name.toLowerCase().includes(query) ||
+    v.category.toLowerCase().includes(query) ||
+    v.description.toLowerCase().includes(query)
+  );
+
+  document.getElementById("screen-vendors").innerHTML = `
+    <section class="content-section">
+      <div class="section-title-row">
+        <div>
+          <p class="section-kicker">Vendor Directory</p>
+          <h3>Trusted Partners</h3>
+        </div>
+        <span class="soft-chip">${filtered.length} partners</span>
+      </div>
+      <input id="vendorSearch" class="vendor-search" type="text" placeholder="Search vendors, category..." value="${searchQuery}">
+      <div class="vendor-grid">
+        ${filtered.map((vendor, index) => `
+          <article class="vendor-card">
+            <div class="vendor-cover vendor-cover-${(index % 4) + 1}"></div>
+            <div class="vendor-body">
+              <div class="vendor-meta">
+                <span class="info-tag">${vendor.category}</span>
+              </div>
+              <h4>${vendor.name}</h4>
+              <p>${vendor.description}</p>
+              <div class="vendor-actions">
+                <a class="primary-button vendor-whatsapp" href="https://wa.me/${vendor.whatsapp.replace(/\D/g, "")}" target="_blank" rel="noreferrer">Chat WhatsApp</a>
+              </div>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+      ${filtered.length === 0 ? `<div class="empty-state">No vendors found.</div>` : ""}
+    </section>
+  `;
+
+  document.getElementById("vendorSearch")?.addEventListener("input", (event) => {
+    renderVendors(event.target.value);
+  });
+}
+
 function renderMerchandise() {
   document.getElementById("screen-merchandise").innerHTML = `
     <section class="content-section">
@@ -405,9 +591,11 @@ function renderChrome() {
   document.getElementById("drawerName").textContent = state.user.name;
   document.getElementById("drawerUsername").textContent = `@${state.user.username}`;
   document.getElementById("drawerAvatar").textContent = state.user.name.charAt(0);
+  loadCarProfile();
   renderHome();
-  renderMemberInfo();
+  renderMyZenix();
   renderEvents();
+  renderVendors();
   renderMerchandise();
 }
 
@@ -432,6 +620,7 @@ function navigate(hash) {
   const screen = hash.replace("#", "");
   if (screens.includes(screen)) {
     setActiveScreen(screen);
+    if (screen === "vendors") renderVendors();
   } else {
     location.hash = "#home";
   }
@@ -493,7 +682,7 @@ async function handleLogout(redirectToLogin = true) {
   } catch {
     // Ignore logout failures and clear UI state.
   }
-
+  localStorage.removeItem("api_token");
   closeDrawer();
   showLogin();
   if (redirectToLogin) {
@@ -502,6 +691,7 @@ async function handleLogout(redirectToLogin = true) {
 }
 
 async function bootApp() {
+  loadTheme();
   const hasSession = await restoreSession();
   if (hasSession) {
     showApp();
@@ -526,6 +716,7 @@ async function bootApp() {
     });
 
     state.user = result.user;
+    localStorage.setItem("api_token", result.token);
     showApp();
     await loadData();
     renderChrome();
@@ -544,6 +735,7 @@ async function bootApp() {
   document.getElementById("menuButton").addEventListener("click", openDrawer);
   document.getElementById("drawerBackdrop").addEventListener("click", closeDrawer);
   document.getElementById("drawerLogoutButton").addEventListener("click", handleLogout);
+  document.getElementById("themeToggle").addEventListener("click", toggleTheme);
 
   document.querySelectorAll("[data-drawer-target]").forEach((button) => {
     button.addEventListener("click", () => {

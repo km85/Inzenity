@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Innova Zenix Community</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -11,7 +14,7 @@
     <div class="login-card">
       <div class="eyebrow">Member Login</div>
       <h1>Innova Zenix Community</h1>
-      <p class="muted">Sign in with a local member account to enter the club app.</p>
+      <p class="muted">Sign in with your member account to enter the club app.</p>
       <div class="landing-panel">
         <div class="landing-item">
           <strong>Demo Member</strong>
@@ -23,7 +26,7 @@
         </div>
         <div class="landing-item">
           <strong>Admin</strong>
-          <span><a href="/admin">Open dashboard login</a></span>
+          <span><a href="/admin.html">Open dashboard login</a></span>
         </div>
       </div>
       <div class="demo-strip">
@@ -57,17 +60,31 @@
         </div>
       </div>
       <nav class="drawer-menu">
-        <button class="drawer-link" type="button" data-drawer-target="member-info">Member Information</button>
-        <button class="drawer-link" type="button" data-drawer-target="events">Event Registration</button>
-        <button class="drawer-link" type="button" data-drawer-target="merchandise">Merchandise</button>
-        <button class="drawer-link danger-link" id="drawerLogoutButton" type="button">Logout</button>
+        <button class="drawer-link" type="button" data-drawer-target="my-zenix">
+          <span><span class="icon">🚙</span> My Zenix</span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="events">
+          <span><span class="icon">📅</span> Events</span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="vendors">
+          <span><span class="icon">🛠</span> Vendors</span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="merchandise">
+          <span><span class="icon">🛒</span> Merchandise</span>
+        </button>
+        <button class="drawer-link theme-toggle" id="themeToggle" type="button">
+          <span><span class="icon" id="themeIcon">🌙</span> <span id="themeLabel">Dark mode</span></span>
+        </button>
+        <button class="drawer-link danger-link" id="drawerLogoutButton" type="button">
+          <span><span class="icon">↪</span> Logout</span>
+        </button>
       </nav>
     </aside>
 
     <header class="member-header">
       <button id="menuButton" class="icon-button" type="button" aria-label="Open menu">☰</button>
       <div class="member-header-copy">
-        <p class="header-kicker">Good to see you</p>
+        <p class="header-kicker">Welcome back</p>
         <h1 id="greetingName">Raka</h1>
       </div>
       <a href="#home" class="brand-chip" aria-label="Home">IZ</a>
@@ -75,23 +92,38 @@
 
     <main class="member-main">
       <section id="screen-home" class="screen"></section>
-      <section id="screen-member-info" class="screen hidden"></section>
+      <section id="screen-my-zenix" class="screen hidden"></section>
       <section id="screen-events" class="screen hidden"></section>
       <section id="screen-event-detail" class="screen hidden"></section>
+      <section id="screen-vendors" class="screen hidden"></section>
       <section id="screen-merchandise" class="screen hidden"></section>
     </main>
 
     <nav class="member-bottom-nav">
-      <a href="#home" class="member-nav-link" data-screen="home">Home</a>
-      <a href="#events" class="member-nav-link" data-screen="events">Events</a>
-      <a href="#home" class="member-nav-link brand-nav-link" data-screen="home" aria-label="Brand home">
-        <span class="brand-nav-button">IZ</span>
+      <a href="#home" class="member-nav-link" data-screen="home">
+        <span class="nav-icon">🏠</span>
+        <span>Home</span>
       </a>
-      <a href="#merchandise" class="member-nav-link" data-screen="merchandise">Merch</a>
-      <a href="#member-info" class="member-nav-link" data-screen="member-info">Info</a>
+      <a href="#events" class="member-nav-link" data-screen="events">
+        <span class="nav-icon">📅</span>
+        <span>Events</span>
+      </a>
+      <a href="#vendors" class="member-nav-link" data-screen="vendors">
+        <span class="nav-icon">🛠</span>
+        <span>Vendors</span>
+      </a>
+      <a href="#merchandise" class="member-nav-link" data-screen="merchandise">
+        <span class="nav-icon">🛒</span>
+        <span>Merch</span>
+      </a>
+      <a href="#my-zenix" class="member-nav-link" data-screen="my-zenix">
+        <span class="nav-icon">🚙</span>
+        <span>My Zenix</span>
+      </a>
     </nav>
   </div>
 
+  <script src="/config.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

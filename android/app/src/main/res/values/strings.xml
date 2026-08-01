@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Inzenity</string>
+    <string name="title_activity_main">Inzenity</string>
+    <string name="package_name">com.inzenity.app</string>
+    <string name="custom_url_scheme">com.inzenity.app</string>
+</resources>
