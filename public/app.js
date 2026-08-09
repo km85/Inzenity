@@ -8,12 +8,18 @@ const state = {
   news: [],
   merchandise: [],
   heroIndex: 0,
+  heroTouchStartX: 0,
+  heroTouchStartY: 0,
   heroTimer: null,
   carProfile: { nickname: "", carModel: "", carYear: "", plateNumber: "" },
+  carPhoto: "",
+  avatarPhoto: "",
+  selectedSponsor: null,
+  selectedMerch: null,
   theme: "dark"
 };
 
-const screens = ["home", "my-zenix", "events", "event-detail", "vendors", "merchandise"];
+const screens = ["home", "my-zenix", "events", "event-detail", "sponsor-detail", "merch-detail", "vendors", "merchandise"];
 
 async function api(path, options = {}) {
   const base = window.API_BASE_URL || "";
@@ -59,6 +65,14 @@ function carKey() {
   return `zenix:car:${state.user?.username || "guest"}`;
 }
 
+function carPhotoKey() {
+  return `zenix:car-photo:${state.user?.username || "guest"}`;
+}
+
+function avatarPhotoKey() {
+  return `zenix:avatar:${state.user?.username || "guest"}`;
+}
+
 function themeKey() {
   return "zenix:theme";
 }
@@ -97,12 +111,37 @@ function loadCarProfile() {
   } catch {
     // ignore corrupt storage
   }
+  state.carPhoto = localStorage.getItem(carPhotoKey()) || "";
+  state.avatarPhoto = localStorage.getItem(avatarPhotoKey()) || "";
 }
 
 function saveCarProfile(profile) {
   state.carProfile = { ...state.carProfile, ...profile };
   localStorage.setItem(carKey(), JSON.stringify(state.carProfile));
   renderMyZenix();
+}
+
+function saveCarPhoto(base64) {
+  state.carPhoto = base64;
+  localStorage.setItem(carPhotoKey(), base64 || "");
+  renderMyZenix();
+}
+
+function saveAvatarPhoto(base64) {
+  state.avatarPhoto = base64;
+  localStorage.setItem(avatarPhotoKey(), base64 || "");
+  renderMyZenix();
+  renderChrome();
+}
+
+function readFileBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve("");
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function showLogin() {
@@ -125,7 +164,9 @@ function setActiveScreen(screen) {
   });
 
   document.querySelectorAll(".member-nav-link").forEach((link) => {
-    link.classList.toggle("active", link.dataset.screen === screen);
+    const linkScreen = link.dataset.screen;
+    const isActive = linkScreen === screen || (linkScreen === "home" && screen === "event-detail") || (linkScreen === "home" && screen === "sponsor-detail") || (linkScreen === "merch" && screen === "merch-detail") || (linkScreen === "events" && screen === "event-detail");
+    link.classList.toggle("active", isActive);
   });
 }
 
@@ -183,16 +224,16 @@ function getSponsors() {
 
 function renderHome() {
   const slides = getHeroSlides();
-  const activeSlide = slides[state.heroIndex % slides.length] || null;
+  const activeIndex = slides.length ? state.heroIndex % slides.length : 0;
+  const activeSlide = slides[activeIndex] || null;
   const newsCards = getNewsCards();
   const sponsors = getSponsors();
   const car = state.carProfile;
-  const carDisplay = car.carModel || car.nickname || state.user.name.split(" ")[0] + "'s Zenix";
 
   document.getElementById("screen-home").innerHTML = `
     <section class="home-hero-card">
       ${activeSlide ? `
-        <div class="hero-banner ${activeSlide.coverClass}">
+        <div class="hero-banner ${activeSlide.coverClass}" id="heroBanner" role="button" tabindex="0">
           <div class="hero-banner-copy">
             <span class="hero-badge">${activeSlide.subtitle}</span>
             <h2>${activeSlide.title}</h2>
@@ -201,7 +242,7 @@ function renderHome() {
           </div>
         </div>
         <div class="hero-dots">
-          ${slides.map((_, index) => `<button class="hero-dot ${index === state.heroIndex % slides.length ? "active" : ""}" type="button" data-hero-index="${index}" aria-label="Go to slide ${index + 1}"></button>`).join("")}
+          ${slides.map((_, index) => `<button class="hero-dot ${index === activeIndex ? "active" : ""}" type="button" data-hero-index="${index}" aria-label="Go to slide ${index + 1}"></button>`).join("")}
         </div>
       ` : ""}
     </section>
@@ -214,8 +255,8 @@ function renderHome() {
         </div>
       </div>
       <div class="sponsor-grid">
-        ${sponsors.map((sponsor) => `
-          <article class="sponsor-card">
+        ${sponsors.map((sponsor, index) => `
+          <article class="sponsor-card" data-sponsor-index="${index}" role="button" tabindex="0">
             <div class="sponsor-logo ${sponsor.logoClass}">${sponsor.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
             <strong>${sponsor.name}</strong>
             <span>${sponsor.category}</span>
@@ -265,12 +306,50 @@ function renderHome() {
     </section>
   `;
 
+  attachHeroSwipe();
+
   document.querySelectorAll("[data-hero-index]").forEach((button) => {
     button.addEventListener("click", () => {
       state.heroIndex = Number(button.dataset.heroIndex);
       renderHome();
     });
   });
+
+  document.querySelectorAll("[data-sponsor-index]").forEach((card) => {
+    card.addEventListener("click", () => {
+      const index = Number(card.dataset.sponsorIndex);
+      state.selectedSponsor = sponsors[index];
+      location.hash = "#sponsor-detail";
+    });
+  });
+}
+
+function attachHeroSwipe() {
+  const banner = document.getElementById("heroBanner");
+  if (!banner) return;
+
+  banner.addEventListener("touchstart", (e) => {
+    state.heroTouchStartX = e.changedTouches[0].screenX;
+    state.heroTouchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+
+  banner.addEventListener("touchend", (e) => {
+    const endX = e.changedTouches[0].screenX;
+    const endY = e.changedTouches[0].screenY;
+    const diffX = state.heroTouchStartX - endX;
+    const diffY = state.heroTouchStartY - endY;
+    const slides = getHeroSlides();
+    if (!slides.length) return;
+
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+      if (diffX > 0) {
+        state.heroIndex = (state.heroIndex + 1) % slides.length;
+      } else {
+        state.heroIndex = (state.heroIndex - 1 + slides.length) % slides.length;
+      }
+      renderHome();
+    }
+  }, { passive: true });
 }
 
 function renderMyZenix() {
@@ -279,7 +358,8 @@ function renderMyZenix() {
     return rsvp && rsvp.status !== "Not Going";
   }).length;
   const car = state.carProfile;
-  const hasCar = car.carModel || car.nickname || car.plateNumber || car.carYear;
+  const carPhoto = state.carPhoto;
+  const avatarPhoto = state.avatarPhoto;
 
   document.getElementById("screen-my-zenix").innerHTML = `
     <section class="content-section">
@@ -291,8 +371,18 @@ function renderMyZenix() {
       </div>
 
       <article class="car-profile-card">
-        <div class="car-hero">🚙</div>
+        <div class="car-hero ${carPhoto ? "car-photo-hero" : ""}">
+          ${carPhoto ? `<img src="${carPhoto}" alt="Car photo" class="car-photo">` : "🚙"}
+        </div>
         <div class="car-profile-body">
+          <div class="upload-row">
+            <label class="upload-label" for="carPhotoInput">
+              <span class="upload-icon">📷</span>
+              <span>${carPhoto ? "Change car photo" : "Upload car photo"}</span>
+            </label>
+            <input type="file" id="carPhotoInput" accept="image/*" class="hidden-file-input">
+            ${carPhoto ? `<button type="button" class="ghost-button upload-remove" data-remove-car>Remove</button>` : ""}
+          </div>
           <div class="car-detail-grid">
             <div class="car-detail-item">
               <span>Model</span>
@@ -316,11 +406,21 @@ function renderMyZenix() {
 
       <article class="member-card">
         <div class="member-card-top">
-          <div class="avatar-circle large-avatar">${state.user.name.charAt(0)}</div>
+          <div class="avatar-circle large-avatar">
+            ${avatarPhoto ? `<img src="${avatarPhoto}" alt="Profile" class="avatar-photo">` : state.user.name.charAt(0)}
+          </div>
           <div>
             <strong>${state.user.name}</strong>
             <p class="muted">@${state.user.username} · ${state.user.role}</p>
           </div>
+        </div>
+        <div class="upload-row compact">
+          <label class="upload-label" for="avatarPhotoInput">
+            <span class="upload-icon">🖼</span>
+            <span>${avatarPhoto ? "Change profile photo" : "Upload profile photo"}</span>
+          </label>
+          <input type="file" id="avatarPhotoInput" accept="image/*" class="hidden-file-input">
+          ${avatarPhoto ? `<button type="button" class="ghost-button upload-remove" data-remove-avatar>Remove</button>` : ""}
         </div>
         <div class="member-detail-grid">
           <div class="member-detail-item">
@@ -392,6 +492,28 @@ function renderMyZenix() {
     state.carProfile = { nickname: "", carModel: "", carYear: "", plateNumber: "" };
     renderMyZenix();
   });
+
+  document.getElementById("carPhotoInput")?.addEventListener("change", async (event) => {
+    try {
+      const base64 = await readFileBase64(event.target.files[0]);
+      if (base64) saveCarPhoto(base64);
+    } catch (err) {
+      alert("Could not read car photo: " + err.message);
+    }
+  });
+
+  document.querySelector("[data-remove-car]")?.addEventListener("click", () => saveCarPhoto(""));
+
+  document.getElementById("avatarPhotoInput")?.addEventListener("change", async (event) => {
+    try {
+      const base64 = await readFileBase64(event.target.files[0]);
+      if (base64) saveAvatarPhoto(base64);
+    } catch (err) {
+      alert("Could not read profile photo: " + err.message);
+    }
+  });
+
+  document.querySelector("[data-remove-avatar]")?.addEventListener("click", () => saveAvatarPhoto(""));
 }
 
 function renderEvents() {
@@ -410,7 +532,7 @@ function renderEvents() {
         ${upcoming.map((event, index) => {
           const mine = getUserRsvp(event);
           return `
-            <article class="event-registration-card">
+            <article class="event-registration-card" data-event-id="${event.id}" role="button" tabindex="0">
               <div class="event-registration-cover hero-cover-${(index % 3) + 1}"></div>
               <div class="event-registration-body">
                 <div class="news-meta">
@@ -427,7 +549,7 @@ function renderEvents() {
                   <span class="info-tag">${mine ? `RSVP: ${mine.status}` : "Open RSVP"}</span>
                   <span class="info-tag">${event.meetingPoint || "Meeting point TBA"}</span>
                 </div>
-                <a class="primary-button" href="#event-${event.id}">View Event</a>
+                <button class="primary-button" type="button">View Event</button>
               </div>
             </article>
           `;
@@ -435,6 +557,12 @@ function renderEvents() {
       </div>
     </section>
   `;
+
+  document.querySelectorAll("[data-event-id]").forEach((card) => {
+    card.addEventListener("click", () => {
+      location.hash = `#event-${card.dataset.eventId}`;
+    });
+  });
 }
 
 function renderEventDetail(eventId) {
@@ -543,7 +671,7 @@ function renderVendors(searchQuery = "") {
               <h4>${vendor.name}</h4>
               <p>${vendor.description}</p>
               <div class="vendor-actions">
-                <a class="primary-button vendor-whatsapp" href="https://wa.me/${vendor.whatsapp.replace(/\D/g, "")}" target="_blank" rel="noreferrer">Chat WhatsApp</a>
+                ${vendor.whatsapp ? `<a class="primary-button vendor-whatsapp" href="https://wa.me/${vendor.whatsapp.replace(/\D/g, "")}" target="_blank" rel="noreferrer">Chat WhatsApp</a>` : ""}
               </div>
             </div>
           </article>
@@ -568,8 +696,8 @@ function renderMerchandise() {
         </div>
       </div>
       <div class="merch-grid">
-        ${state.merchandise.map((item) => `
-          <article class="merch-card">
+        ${state.merchandise.map((item, index) => `
+          <article class="merch-card" data-merch-index="${index}" role="button" tabindex="0">
             <div class="merch-cover ${item.image}"></div>
             <div class="merch-body">
               <div class="news-meta">
@@ -584,13 +712,90 @@ function renderMerchandise() {
       </div>
     </section>
   `;
+
+  document.querySelectorAll("[data-merch-index]").forEach((card) => {
+    card.addEventListener("click", () => {
+      const index = Number(card.dataset.merchIndex);
+      state.selectedMerch = state.merchandise[index];
+      location.hash = "#merch-detail";
+    });
+  });
+}
+
+function renderSponsorDetail() {
+  const screen = document.getElementById("screen-sponsor-detail");
+  const sponsor = state.selectedSponsor;
+  if (!sponsor) {
+    screen.innerHTML = `<div class="empty-state">No sponsor selected.</div>`;
+    return;
+  }
+
+  screen.innerHTML = `
+    <section class="content-section">
+      <article class="event-detail-shell">
+        <div class="sponsor-logo large-logo ${sponsor.logoClass}">${sponsor.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
+        <div class="detail-card">
+          <div class="toolbar">
+            <a class="ghost-button" href="#home">Back</a>
+            <a class="ghost-button" href="#home">Home</a>
+          </div>
+          <p class="section-kicker">Trusted Partner</p>
+          <h3>${sponsor.name}</h3>
+          <div class="event-meta">
+            <span class="info-tag">${sponsor.category}</span>
+          </div>
+          <div class="detail-placeholder">
+            <p>Partner details page.</p>
+            <p class="muted">Text and image fields are ready to be filled.</p>
+          </div>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
+function renderMerchDetail() {
+  const screen = document.getElementById("screen-merch-detail");
+  const item = state.selectedMerch;
+  if (!item) {
+    screen.innerHTML = `<div class="empty-state">No item selected.</div>`;
+    return;
+  }
+
+  screen.innerHTML = `
+    <section class="content-section">
+      <article class="event-detail-shell">
+        <div class="merch-cover detail-cover ${item.image}"></div>
+        <div class="detail-card">
+          <div class="toolbar">
+            <a class="ghost-button" href="#merchandise">Back</a>
+            <a class="ghost-button" href="#home">Home</a>
+          </div>
+          <p class="section-kicker">Club Store</p>
+          <h3>${item.title}</h3>
+          <div class="event-meta">
+            <span>${item.price}</span>
+          </div>
+          <p>${item.description}</p>
+          <div class="detail-placeholder">
+            <p>Item details page.</p>
+            <p class="muted">Text and image fields are ready to be filled.</p>
+          </div>
+        </div>
+      </article>
+    </section>
+  `;
 }
 
 function renderChrome() {
   document.getElementById("greetingName").textContent = state.user.name.split(" ")[0];
   document.getElementById("drawerName").textContent = state.user.name;
   document.getElementById("drawerUsername").textContent = `@${state.user.username}`;
-  document.getElementById("drawerAvatar").textContent = state.user.name.charAt(0);
+  const drawerAvatar = document.getElementById("drawerAvatar");
+  const avatarPhoto = state.avatarPhoto;
+  if (drawerAvatar) {
+    drawerAvatar.innerHTML = avatarPhoto ? `<img src="${avatarPhoto}" alt="Profile" class="avatar-photo small">` : state.user.name.charAt(0);
+  }
   loadCarProfile();
   renderHome();
   renderMyZenix();
@@ -621,6 +826,8 @@ function navigate(hash) {
   if (screens.includes(screen)) {
     setActiveScreen(screen);
     if (screen === "vendors") renderVendors();
+    if (screen === "sponsor-detail") renderSponsorDetail();
+    if (screen === "merch-detail") renderMerchDetail();
   } else {
     location.hash = "#home";
   }

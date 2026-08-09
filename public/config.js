@@ -1,1 +1,1 @@
-window.API_BASE_URL = "https://delivered-snake-styles-beauty.trycloudflare.com";
+window.API_BASE_URL = "https://suggested-performing-paying-prospective.trycloudflare.com";
