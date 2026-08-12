@@ -393,14 +393,14 @@ async function logoutAdmin() {
   } catch {
     // Ignore logout failures.
   }
-  window.location.href = "/admin";
+  window.location.href = "/admin.html";
 }
 
 async function bootAdmin() {
   const me = await request("/api/auth/me");
   adminState.user = me.user;
   if (adminState.user.role !== "admin") {
-    window.location.href = "/admin";
+    window.location.href = "/admin.html";
     return;
   }
 
@@ -422,5 +422,5 @@ async function bootAdmin() {
 
 bootAdmin().catch((error) => {
   alert(error.message);
-  window.location.href = "/admin";
+  window.location.href = "/admin.html";
 });

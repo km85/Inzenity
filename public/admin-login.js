@@ -23,5 +23,5 @@ document.getElementById("adminLoginForm").addEventListener("submit", async (even
       scope: "admin"
     })
   });
-  window.location.href = "/admin";
+  window.location.href = "/admin.html";
 });
