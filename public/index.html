@@ -12,21 +12,21 @@
 <body>
   <div id="loginView" class="login-wrap">
     <div class="login-card">
-      <div class="eyebrow">Member Login</div>
-      <h1>Innova Zenix Community</h1>
-      <p class="muted">Sign in with your member account to enter the club app.</p>
+      <div class="eyebrow" data-i18n="loginTitle">Member Login</div>
+      <h1 data-i18n="appTitle">Innova Zenix Community</h1>
+      <p class="muted" data-i18n="loginSubtitle">Sign in with your member account to enter the club app.</p>
       <div class="landing-panel">
         <div class="landing-item">
-          <strong>Demo Member</strong>
+          <strong data-i18n="demoMember">Demo Member</strong>
           <span>raka / member123</span>
         </div>
         <div class="landing-item">
-          <strong>Alternative</strong>
+          <strong data-i18n="alternative">Alternative</strong>
           <span>dina / member123</span>
         </div>
         <div class="landing-item">
-          <strong>Admin</strong>
-          <span><a href="/admin.html">Open dashboard login</a></span>
+          <strong data-i18n="adminLabel">Admin</strong>
+          <span><a href="/admin-login.html" data-i18n="openDashboardLogin">Open dashboard login</a></span>
         </div>
       </div>
       <div class="demo-strip">
@@ -35,15 +35,28 @@
         <button class="pill" type="button" data-demo-username="bimo" data-demo-password="member123">Bimo</button>
       </div>
       <form id="loginForm">
+        <div id="loginMessage" class="form-message" style="margin-bottom: 12px;"></div>
         <div class="input-group">
-          <label for="loginUsername">Username</label>
+          <label for="loginUsername" data-i18n="username">Username</label>
           <input id="loginUsername" name="username" type="text" placeholder="raka" required>
         </div>
         <div class="input-group">
-          <label for="loginPassword">Password</label>
+          <label for="loginPassword" data-i18n="password">Password</label>
           <input id="loginPassword" name="password" type="password" placeholder="member123" required>
         </div>
-        <button class="primary-button" type="submit">Enter Community App</button>
+        <button class="primary-button" type="submit" data-i18n="enterApp">Enter Community App</button>
+      </form>
+      <div class="auth-switch" style="margin-top: 18px; text-align: center;">
+        <span class="muted" data-i18n="noAccount">Belum punya akun?</span>
+        <button class="link-button" id="showRegisterButton" type="button" data-i18n="registerNow">Daftar sekarang</button>
+      </div>
+      <form id="registerForm" class="hidden" style="margin-top: 18px;">
+        <div class="eyebrow" data-i18n="registerTitle">Member Registration</div>
+        <p class="muted" data-i18n="registerSubtitle">Isi data kamu. Admin akan review dan approve akunmu.</p>
+        <div id="registerFields"></div>
+        <button class="primary-button" type="submit" data-i18n="submitRegistration">Kirim Pendaftaran</button>
+        <button class="ghost-button" id="backToLoginButton" type="button" data-i18n="backToLogin" style="margin-top: 8px;">Kembali ke Login</button>
+        <div id="registerMessage" class="form-message" style="margin-top: 12px;"></div>
       </form>
     </div>
   </div>
@@ -61,22 +74,28 @@
       </div>
       <nav class="drawer-menu">
         <button class="drawer-link" type="button" data-drawer-target="my-zenix">
-          <span><span class="icon">🚙</span> My Zenix</span>
+          <span><span class="icon">🚙</span> <span data-i18n="myZenix">My Zenix</span></span>
         </button>
         <button class="drawer-link" type="button" data-drawer-target="events">
-          <span><span class="icon">📅</span> Events</span>
+          <span><span class="icon">📅</span> <span data-i18n="events">Events</span></span>
         </button>
         <button class="drawer-link" type="button" data-drawer-target="vendors">
-          <span><span class="icon">🛠</span> Vendors</span>
+          <span><span class="icon">🛠</span> <span data-i18n="vendors">Vendors</span></span>
         </button>
         <button class="drawer-link" type="button" data-drawer-target="merchandise">
-          <span><span class="icon">🛒</span> Merchandise</span>
+          <span><span class="icon">🛒</span> <span data-i18n="merchandise">Merchandise</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="merchant-partners">
+          <span><span class="icon">🏪</span> <span data-i18n="merchantPartners">Merchant Partners</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="leaderboard">
+          <span><span class="icon">🏆</span> <span data-i18n="leaderboard">Leaderboard</span></span>
         </button>
         <button class="drawer-link theme-toggle" id="themeToggle" type="button">
-          <span><span class="icon" id="themeIcon">🌙</span> <span id="themeLabel">Dark mode</span></span>
+          <span><span class="icon" id="themeIcon">🌙</span> <span id="themeLabel" data-i18n="darkMode">Dark mode</span></span>
         </button>
         <button class="drawer-link danger-link" id="drawerLogoutButton" type="button">
-          <span><span class="icon">↪</span> Logout</span>
+          <span><span class="icon">↪</span> <span data-i18n="logout">Logout</span></span>
         </button>
       </nav>
     </aside>
@@ -84,7 +103,7 @@
     <header class="member-header">
       <button id="menuButton" class="icon-button" type="button" aria-label="Open menu">☰</button>
       <div class="member-header-copy">
-        <p class="header-kicker">Welcome back</p>
+        <p class="header-kicker" data-i18n="welcomeBack">Welcome back</p>
         <h1 id="greetingName">Raka</h1>
       </div>
       <a href="#home" class="brand-chip" aria-label="Home">IZ</a>
@@ -99,28 +118,32 @@
       <section id="screen-merchandise" class="screen hidden"></section>
       <section id="screen-sponsor-detail" class="screen hidden"></section>
       <section id="screen-merch-detail" class="screen hidden"></section>
+      <section id="screen-product-detail" class="screen hidden"></section>
+      <section id="screen-merchant-partners" class="screen hidden"></section>
+      <section id="screen-merchant-detail" class="screen hidden"></section>
+      <section id="screen-leaderboard" class="screen hidden"></section>
     </main>
 
     <nav class="member-bottom-nav">
       <a href="#home" class="member-nav-link" data-screen="home">
         <span class="nav-icon">🏠</span>
-        <span>Home</span>
+        <span data-i18n="home">Home</span>
       </a>
       <a href="#events" class="member-nav-link" data-screen="events">
         <span class="nav-icon">📅</span>
-        <span>Events</span>
+        <span data-i18n="events">Events</span>
       </a>
       <a href="#vendors" class="member-nav-link" data-screen="vendors">
         <span class="nav-icon">🛠</span>
-        <span>Vendors</span>
+        <span data-i18n="vendors">Vendors</span>
       </a>
       <a href="#merchandise" class="member-nav-link" data-screen="merchandise">
         <span class="nav-icon">🛒</span>
-        <span>Merch</span>
+        <span data-i18n="merch">Merch</span>
       </a>
       <a href="#my-zenix" class="member-nav-link" data-screen="my-zenix">
         <span class="nav-icon">🚙</span>
-        <span>My Zenix</span>
+        <span data-i18n="myZenix">My Zenix</span>
       </a>
     </nav>
   </div>

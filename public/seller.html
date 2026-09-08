@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Innova Zenix Seller Portal</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .seller-login { max-width:360px; margin:10vh auto; padding:24px; border:1px solid #e5e7eb; border-radius:12px; }
+    .seller-login h1 { margin-bottom:16px; }
+    .seller-login input { width:100%; margin-bottom:12px; padding:10px; }
+    .seller-login button { width:100%; padding:10px; }
+    .seller-shell { display:flex; min-height:100vh; }
+    .seller-sidebar { width:240px; background:#0f172a; color:#fff; padding:24px; }
+    .seller-sidebar h2 { font-size:18px; margin-bottom:24px; }
+    .seller-sidebar nav a { display:block; color:#cbd5e1; padding:10px 0; cursor:pointer; }
+    .seller-sidebar nav a.active { color:#fff; font-weight:600; }
+    .seller-main { flex:1; padding:24px; }
+    .seller-card { background:#fff; border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,.1); }
+    .seller-table { width:100%; border-collapse:collapse; }
+    .seller-table th, .seller-table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
+    .seller-form label { display:block; margin:12px 0 4px; font-size:14px; }
+    .seller-form input, .seller-form textarea, .seller-form select { width:100%; padding:8px; }
+    .seller-actions { margin-top:16px; }
+    .badge { padding:2px 8px; border-radius:999px; font-size:12px; background:#e5e7eb; }
+  </style>
+</head>
+<body class="admin-body">
+  <div id="loginScreen" class="seller-login">
+    <h1>Seller Portal</h1>
+    <p class="muted">Log in with your merchant account.</p>
+    <input id="loginUser" type="text" placeholder="Username">
+    <input id="loginPass" type="password" placeholder="Password">
+    <button class="primary-button" id="loginBtn" type="button">Log In</button>
+    <p id="loginError" class="muted" style="color:#b91c1c;margin-top:8px;"></p>
+  </div>
+
+  <div id="appScreen" class="seller-shell" style="display:none;">
+    <aside class="seller-sidebar">
+      <h2>Innova Zenix Seller</h2>
+      <nav>
+        <a data-tab="products" class="active">Products</a>
+        <a data-tab="orders">Orders</a>
+      </nav>
+      <div style="margin-top:auto;padding-top:24px;">
+        <button class="ghost-button" id="logoutBtn" style="width:100%;">Log Out</button>
+      </div>
+    </aside>
+    <main class="seller-main" id="mainArea"></main>
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="/seller.js"></script>
+</body>
+</html>
