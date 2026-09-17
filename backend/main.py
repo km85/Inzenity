@@ -220,6 +220,43 @@ class OfficialPartner(Base):
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class TouringCheckpoint(Base):
+    __tablename__ = "touring_checkpoints"
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    label = Column(String, nullable=False)  # A1, A2, A3, etc.
+    name = Column(String)
+    lat = Column(String)
+    lon = Column(String)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    event = relationship("Event", backref="touring_checkpoints")
+
+class TouringParticipant(Base):
+    __tablename__ = "touring_participants"
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="registered")  # registered, started, finished, dropped
+    event = relationship("Event", backref="touring_participants")
+    user = relationship("User")
+    vehicle = relationship("Vehicle")
+
+class TouringCheckpointCheckIn(Base):
+    __tablename__ = "touring_checkpoint_checkins"
+    id = Column(Integer, primary_key=True, index=True)
+    checkpoint_id = Column(Integer, ForeignKey("touring_checkpoints.id"), nullable=False)
+    participant_id = Column(Integer, ForeignKey("touring_participants.id"), nullable=False)
+    checked_in_at = Column(DateTime, default=datetime.utcnow)
+    lat = Column(String)
+    lon = Column(String)
+    notes = Column(String)
+    checkpoint = relationship("TouringCheckpoint", backref="checkins")
+    participant = relationship("TouringParticipant", backref="checkpoint_checkins")
+    __table_args__ = (UniqueConstraint("checkpoint_id", "participant_id", name="uq_checkpoint_participant"),)
+
 class MerchantPartner(Base):
     __tablename__ = "merchant_partners"
     id = Column(Integer, primary_key=True, index=True)
@@ -1848,6 +1885,235 @@ def get_event_checkins(event_id: int, session = Depends(require_admin)):
     db = session["db"]
     cis = db.query(CheckIn).filter(CheckIn.event_id == event_id).order_by(CheckIn.checked_in_at.desc()).all()
     return [checkin_to_dict(ci) for ci in cis]
+
+# --- Phase 4A: Touring APIs ---
+
+@app.post("/api/events/{event_id}/touring/checkpoints")
+def create_touring_checkpoint(event_id: int, body: dict = Body(default={}), session = Depends(require_admin)):
+    db = session["db"]
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    cp = TouringCheckpoint(
+        event_id=event_id,
+        label=body.get("label", ""),
+        name=body.get("name"),
+        lat=str(body.get("lat", body.get("latitude", ""))) if body.get("lat", body.get("latitude")) is not None else None,
+        lon=str(body.get("lon", body.get("longitude", ""))) if body.get("lon", body.get("longitude")) is not None else None,
+        sort_order=body.get("sort_order", body.get("sortOrder", 0))
+    )
+    db.add(cp)
+    db.commit()
+    db.refresh(cp)
+    return {"id": cp.id, "event_id": cp.event_id, "label": cp.label, "name": cp.name, "lat": cp.lat, "lon": cp.lon, "sort_order": cp.sort_order}
+
+@app.get("/api/events/{event_id}/touring/checkpoints")
+def get_touring_checkpoints(event_id: int, session = Depends(require_any)):
+    db = session["db"]
+    cps = db.query(TouringCheckpoint).filter(TouringCheckpoint.event_id == event_id).order_by(TouringCheckpoint.sort_order).all()
+    return [{"id": cp.id, "event_id": cp.event_id, "label": cp.label, "name": cp.name, "lat": cp.lat, "lon": cp.lon, "sort_order": cp.sort_order} for cp in cps]
+
+@app.post("/api/events/{event_id}/touring/join")
+def join_touring(event_id: int, body: dict = Body(default={}), session = Depends(require_member)):
+    db = session["db"]
+    user_id = session["user"].id
+    existing = db.query(TouringParticipant).filter(TouringParticipant.event_id == event_id, TouringParticipant.user_id == user_id).first()
+    if existing:
+        return {"id": existing.id, "status": existing.status, "message": "Already registered"}
+    participant = TouringParticipant(
+        event_id=event_id,
+        user_id=user_id,
+        vehicle_id=body.get("vehicle_id"),
+        status="registered"
+    )
+    db.add(participant)
+    db.commit()
+    db.refresh(participant)
+    return {"id": participant.id, "status": participant.status, "message": "Joined touring"}
+
+@app.get("/api/events/{event_id}/touring/participants")
+def get_touring_participants(event_id: int, session = Depends(require_any)):
+    db = session["db"]
+    participants = db.query(TouringParticipant).filter(TouringParticipant.event_id == event_id).all()
+    return [{"id": p.id, "user_id": p.user_id, "vehicle_id": p.vehicle_id, "status": p.status, "joined_at": p.joined_at.isoformat() if p.joined_at else None} for p in participants]
+
+@app.post("/api/touring/checkpoints/{checkpoint_id}/check-in")
+def touring_checkpoint_checkin(checkpoint_id: int, body: dict = Body(default={}), session = Depends(require_member)):
+    db = session["db"]
+    user_id = session["user"].id
+    cp = db.query(TouringCheckpoint).filter(TouringCheckpoint.id == checkpoint_id).first()
+    if not cp:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+    participant = db.query(TouringParticipant).filter(TouringParticipant.event_id == cp.event_id, TouringParticipant.user_id == user_id).first()
+    if not participant:
+        raise HTTPException(status_code=403, detail="Not registered for this touring")
+    existing = db.query(TouringCheckpointCheckIn).filter(TouringCheckpointCheckIn.checkpoint_id == checkpoint_id, TouringCheckpointCheckIn.participant_id == participant.id).first()
+    if existing:
+        return {"id": existing.id, "message": "Already checked in"}
+    checkin = TouringCheckpointCheckIn(
+        checkpoint_id=checkpoint_id,
+        participant_id=participant.id,
+        lat=body.get("lat"),
+        lon=body.get("lon"),
+        notes=body.get("notes")
+    )
+    db.add(checkin)
+    db.commit()
+    db.refresh(checkin)
+    return {"id": checkin.id, "message": "Checked in at " + cp.label}
+
+# --- Phase 4A: Plate Number Search API ---
+
+@app.get("/api/plate-search")
+def plate_search(plate: str, session = Depends(require_member)):
+    """Search vehicle by plate number. Returns limited member info only."""
+    db = session["db"]
+    if not plate or len(plate) < 3:
+        raise HTTPException(status_code=400, detail="Plate number must be at least 3 characters")
+    
+    # Search by plate number (partial match, case insensitive)
+    vehicles = db.query(Vehicle).filter(Vehicle.plate_number.ilike(f"%{plate}%")).limit(10).all()
+    
+    results = []
+    for v in vehicles:
+        user = db.query(User).filter(User.id == v.user_id).first()
+        if user:
+            # Only return limited info — no phone, email, address
+            chapter = None
+            if user.chapter_id:
+                ch = db.query(Chapter).filter(Chapter.id == user.chapter_id).first()
+                chapter = ch.name if ch else None
+            
+            results.append({
+                "plate_number": v.plate_number,
+                "member_name": user.name,
+                "member_number": user.member_number,
+                "chapter": chapter,
+                "vehicle_nickname": v.nickname,
+                "vehicle_model": v.model
+            })
+    
+    return {"results": results, "count": len(results)}
+
+# --- Phase 4A: Emergency Button API ---
+
+class EmergencyIncident(Base):
+    __tablename__ = "emergency_incidents"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    incident_type = Column(String, default="general")  # general, accident, breakdown, medical, security
+    notes = Column(Text)
+    status = Column(String, default="active")  # active, resolved, cancelled
+    lat = Column(String)
+    lon = Column(String)
+    location_permission = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user = relationship("User", foreign_keys=[user_id])
+
+class EmergencyContact(Base):
+    __tablename__ = "emergency_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # owner of contact
+    contact_name = Column(String, nullable=False)
+    contact_phone = Column(String, nullable=False)
+    contact_relation = Column(String)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User")
+
+@app.post("/api/emergency")
+def create_emergency(body: dict = Body(default={}), session = Depends(require_member)):
+    """Create emergency incident. Requires confirmation."""
+    db = session["db"]
+    user_id = session["user"].id
+    
+    # Confirmation check
+    confirmed = body.get("confirmed", False)
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Emergency alert requires explicit confirmation")
+    
+    incident = EmergencyIncident(
+        user_id=user_id,
+        incident_type=body.get("incident_type", "general"),
+        notes=body.get("notes"),
+        lat=body.get("lat"),
+        lon=body.get("lon"),
+        location_permission=body.get("location_permission", False),
+        status="active"
+    )
+    db.add(incident)
+    db.commit()
+    db.refresh(incident)
+    
+    # TODO: Notify recipients (admin, chapter, emergency contacts)
+    # For MVP, we just create the record
+    
+    return {
+        "id": incident.id,
+        "status": incident.status,
+        "message": "Emergency alert created. Help is on the way.",
+        "created_at": incident.created_at.isoformat()
+    }
+
+@app.get("/api/emergency/{incident_id}")
+def get_emergency(incident_id: int, session = Depends(require_member)):
+    """Get emergency incident. Only owner or admin can view."""
+    db = session["db"]
+    user_id = session["user"].id
+    user_role = session["user"]["role"]
+    
+    incident = db.query(EmergencyIncident).filter(EmergencyIncident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    # Only owner or admin can view
+    if incident.user_id != user_id and user_role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    return {
+        "id": incident.id,
+        "user_id": incident.user_id,
+        "incident_type": incident.incident_type,
+        "notes": incident.notes,
+        "status": incident.status,
+        "lat": incident.lat,
+        "lon": incident.lon,
+        "location_permission": incident.location_permission,
+        "created_at": incident.created_at.isoformat(),
+        "resolved_at": incident.resolved_at.isoformat() if incident.resolved_at else None
+    }
+
+@app.post("/api/emergency/{incident_id}/resolve")
+def resolve_emergency(incident_id: int, body: dict = Body(default={}), session = Depends(require_admin)):
+    """Resolve emergency incident. Admin only."""
+    db = session["db"]
+    incident = db.query(EmergencyIncident).filter(EmergencyIncident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    incident.status = "resolved"
+    incident.resolved_at = datetime.utcnow()
+    incident.resolved_by = session["user"].id
+    db.commit()
+    
+    return {"id": incident.id, "status": "resolved", "message": "Incident resolved"}
+
+@app.get("/api/emergency/active/list")
+def get_active_emergencies(session = Depends(require_admin)):
+    """Get all active emergencies. Admin only."""
+    db = session["db"]
+    incidents = db.query(EmergencyIncident).filter(EmergencyIncident.status == "active").order_by(EmergencyIncident.created_at.desc()).all()
+    return [{
+        "id": i.id,
+        "user_id": i.user_id,
+        "incident_type": i.incident_type,
+        "status": i.status,
+        "lat": i.lat,
+        "lon": i.lon,
+        "created_at": i.created_at.isoformat()
+    } for i in incidents]
 
 # --- Points (admin) ---
 @app.get("/api/point-transactions")
