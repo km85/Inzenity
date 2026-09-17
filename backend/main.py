@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, inspect as sa_inspect, text, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, inspect as sa_inspect, text, UniqueConstraint, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from sqlalchemy.exc import IntegrityError
@@ -1014,8 +1014,10 @@ seed_reference_data()
 # --- Auth ---
 @app.post("/api/auth/login")
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username).first()
-    if not user or user.password != body.password:
+    username = body.username.strip().lower()
+    password = body.password.strip()
+    user = db.query(User).filter(func.lower(User.username) == username).first()
+    if not user or user.password != password:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     if body.scope == "admin" and user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -2346,7 +2348,6 @@ def leaderboard(period: str = "monthly", date: str = None, session = Depends(req
     }
 
 # Need func import
-from sqlalchemy import func
 
 # --- Announcements ---
 @app.get("/api/announcements")
