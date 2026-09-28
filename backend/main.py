@@ -421,6 +421,27 @@ class Redemption(Base):
     user = relationship("User", foreign_keys=[user_id])
     reward = relationship("Reward")
 
+class EmergencyAlert(Base):
+    __tablename__ = "emergency_alerts"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    latitude = Column(String)
+    longitude = Column(String)
+    status = Column(String, default="active")  # active, resolved
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user = relationship("User", foreign_keys=[user_id])
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # recipient
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", foreign_keys=[user_id])
+
 # --- Migration ---
 def migrate_database(engine):
     inspector = sa_inspect(engine)
@@ -905,6 +926,10 @@ def parse_bool(val):
 
 # --- File helpers ---
 public_dir = os.path.join(os.path.dirname(__file__), "..", "public")
+
+# Mount static files (APK, HTML, CSS, JS, etc.)
+app.mount("/public", StaticFiles(directory=public_dir), name="public")
+
 uploads_dir = os.path.join(public_dir, "uploads", "chapters")
 os.makedirs(uploads_dir, exist_ok=True)
 
@@ -2024,6 +2049,112 @@ class EmergencyContact(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User")
+
+# --- Emergency Alert (SOS) endpoints ---
+# NOTE: These must be defined BEFORE /api/emergency/{incident_id} to avoid route conflicts
+
+@app.post("/api/emergency/alert")
+def create_emergency_alert(body: dict = Body(default={}), session = Depends(require_any)):
+    """Trigger SOS alert. Any authenticated member can trigger."""
+    db = session["db"]
+    user = session["user"]
+    
+    latitude = body.get("latitude")
+    longitude = body.get("longitude")
+    
+    alert = EmergencyAlert(
+        user_id=user.id,
+        latitude=str(latitude) if latitude is not None else None,
+        longitude=str(longitude) if longitude is not None else None,
+        status="active"
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    
+    # Build location string for admin notification
+    location_str = ""
+    if latitude is not None and longitude is not None:
+        location_str = f"({latitude}, {longitude})"
+    elif user.city:
+        location_str = user.city
+    else:
+        location_str = "location unknown"
+    
+    # Notify all admins
+    admins = db.query(User).filter(User.role == "admin").all()
+    for admin in admins:
+        notif = Notification(
+            user_id=admin.id,
+            message=f"EMERGENCY: {user.name} needs help at {location_str}",
+            is_read=False
+        )
+        db.add(notif)
+    
+    # Notify all members in same chapter
+    if user.chapter_id:
+        chapter_members = db.query(User).filter(
+            User.chapter_id == user.chapter_id,
+            User.id != user.id,
+            User.role == "member"
+        ).all()
+        for member in chapter_members:
+            notif = Notification(
+                user_id=member.id,
+                message=f"Emergency alert from {user.name}",
+                is_read=False
+            )
+            db.add(notif)
+    
+    db.commit()
+    
+    return {
+        "alert_id": alert.id,
+        "message": "Emergency alert sent",
+        "status": alert.status,
+        "created_at": alert.created_at.isoformat()
+    }
+
+@app.get("/api/emergency/alerts")
+def get_emergency_alerts(session = Depends(require_admin)):
+    """List all active emergency alerts. Admin only."""
+    db = session["db"]
+    alerts = db.query(EmergencyAlert).filter(EmergencyAlert.status == "active").order_by(EmergencyAlert.created_at.desc()).all()
+    result = []
+    for alert in alerts:
+        alert_user = db.query(User).filter(User.id == alert.user_id).first()
+        result.append({
+            "alert_id": alert.id,
+            "user_id": alert.user_id,
+            "user_name": alert_user.name if alert_user else None,
+            "user_phone": alert_user.phone if alert_user else None,
+            "latitude": alert.latitude,
+            "longitude": alert.longitude,
+            "status": alert.status,
+            "created_at": alert.created_at.isoformat()
+        })
+    return result
+
+@app.post("/api/emergency/resolve")
+def resolve_emergency_alert(body: dict = Body(default={}), session = Depends(require_admin)):
+    """Mark emergency alert as resolved. Admin only."""
+    db = session["db"]
+    alert_id = parse_int(body.get("alert_id"))
+    if not alert_id:
+        raise HTTPException(status_code=400, detail="alert_id required")
+    
+    alert = db.query(EmergencyAlert).filter(EmergencyAlert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    alert.status = "resolved"
+    alert.resolved_at = datetime.utcnow()
+    alert.resolved_by = session["user"].id
+    db.commit()
+    
+    return {"alert_id": alert.id, "status": "resolved", "message": "Emergency alert resolved"}
+
+# --- Emergency Incident endpoints (legacy) ---
 
 @app.post("/api/emergency")
 def create_emergency(body: dict = Body(default={}), session = Depends(require_member)):
@@ -3255,6 +3386,43 @@ def post_chat_message(room_id: int, body: dict = Body(default={}), session = Dep
     db.add(cm)
     db.commit()
     return {"id": cm.id}
+
+# --- Phase 4B: Member Plate Search (Exact Match) ---
+
+@app.get("/api/members/search")
+def member_plate_search(plate: str, session = Depends(require_any)):
+    """Search member by exact plate number. Returns limited member info."""
+    db = session["db"]
+    if not plate or len(plate.strip()) < 1:
+        raise HTTPException(status_code=400, detail="Plate number is required")
+    
+    plate = plate.strip().upper()
+    
+    # Exact match only, case insensitive
+    vehicle = db.query(Vehicle).filter(func.upper(Vehicle.plate_number) == plate).first()
+    if not vehicle:
+        return {"results": [], "count": 0}
+    
+    user = db.query(User).filter(User.id == vehicle.user_id).first()
+    if not user:
+        return {"results": [], "count": 0}
+    
+    chapter = None
+    if user.chapter_id:
+        ch = db.query(Chapter).filter(Chapter.id == user.chapter_id).first()
+        chapter = ch.name if ch else None
+    
+    result = {
+        "member_name": user.name,
+        "member_number": user.member_number,
+        "phone": user.phone,
+        "chapter": chapter,
+        "vehicle_nickname": vehicle.nickname,
+        "vehicle_model": vehicle.model,
+        "plate_number": vehicle.plate_number,
+    }
+    
+    return {"results": [result], "count": 1}
 
 # --- Static Files ---
 app.mount("/", StaticFiles(directory=public_dir, html=True), name="static")
