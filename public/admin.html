@@ -24,9 +24,10 @@
       <nav class="sidebar-nav" id="sidebarNav"></nav>
 
       <div class="sidebar-actions">
-        <a class="ghost-button sidebar-button" href="/">Open Member App</a>
-        <button class="ghost-button sidebar-button" id="resetDataButton" type="button">Reset Seed Data</button>
-        <button class="danger-button sidebar-button" id="adminLogoutButton" type="button">Log Out</button>
+        <div id="adminLangToggle" style="margin-bottom: 12px;"></div>
+        <a class="ghost-button sidebar-button" href="/" data-i18n="openMemberApp">Open Member App</a>
+        <button class="ghost-button sidebar-button" id="resetDataButton" type="button" data-i18n="resetSeedData">Reset Seed Data</button>
+        <button class="danger-button sidebar-button" id="adminLogoutButton" type="button" data-i18n="logOut">Log Out</button>
       </div>
     </aside>
 
@@ -84,6 +85,8 @@
     </div>
   </div>
 
+  <script src="/config.js"></script>
+  <script src="/i18n.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>

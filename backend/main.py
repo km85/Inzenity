@@ -67,6 +67,8 @@ class User(Base):
     member_number = Column(String)
     points_balance = Column(Integer, default=0)
     merchant_partner_id = Column(Integer, ForeignKey("merchant_partners.id"), nullable=True)
+    fcm_token = Column(String, nullable=True)
+    notifications_enabled = Column(Boolean, default=True)
     chapter = relationship("Chapter")
 
 class SessionModel(Base):
@@ -490,6 +492,10 @@ def migrate_database(engine):
             col_names = {c["name"] for c in columns}
             if "merchant_partner_id" not in col_names:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN merchant_partner_id {Integer().compile(engine.dialect)}"))
+            if "fcm_token" not in col_names:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN fcm_token {String().compile(engine.dialect)}"))
+            if "notifications_enabled" not in col_names:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN notifications_enabled {Boolean().compile(engine.dialect)} DEFAULT 1"))
         if "banners" in inspector.get_table_names():
             columns = inspector.get_columns("banners")
             col_names = {c["name"] for c in columns}
@@ -923,6 +929,52 @@ def parse_bool(val):
     if val is None:
         return None
     return str(val).lower() in ("true", "1", "yes", "on")
+
+# --- FCM Push Notification Helper ---
+def send_push_notification(user_id: int, title: str, body: str, db: Session = None):
+    """
+    Send FCM push notification to a specific user.
+    Placeholder implementation — actual FCM HTTP v1 integration pending credentials.
+    """
+    if db is None:
+        db = SessionLocal()
+        try:
+            return _send_push_internal(db, user_id, title, body)
+        finally:
+            db.close()
+    return _send_push_internal(db, user_id, title, body)
+
+def _send_push_internal(db: Session, user_id: int, title: str, body: str):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return {"success": False, "error": "User not found"}
+    
+    if not user.notifications_enabled:
+        return {"success": False, "error": "Notifications disabled for user"}
+    
+    if not user.fcm_token:
+        return {"success": False, "error": "No FCM token registered"}
+    
+    # TODO: Integrate FCM HTTP v1 API when credentials are available
+    # For now, log the notification (placeholder)
+    print(f"[FCM PLACEHOLDER] To user {user_id} ({user.name}): {title} — {body}")
+    
+    return {
+        "success": True,
+        "user_id": user_id,
+        "title": title,
+        "body": body,
+        "fcm_token": user.fcm_token[:20] + "..." if user.fcm_token else None,
+        "message": "Push notification queued (FCM credentials pending)"
+    }
+
+def send_push_to_users(user_ids: list, title: str, body: str, db: Session = None):
+    """Send push notification to multiple users."""
+    results = []
+    for uid in user_ids:
+        result = send_push_notification(uid, title, body, db)
+        results.append({"user_id": uid, "result": result})
+    return results
 
 # --- File helpers ---
 public_dir = os.path.join(os.path.dirname(__file__), "..", "public")
@@ -1745,6 +1797,18 @@ def create_event(body: dict = Body(default={}), session = Depends(require_admin)
     db.add(event)
     db.commit()
     db.refresh(event)
+    
+    # Send push notification for new event
+    event_date_str = event.date.strftime("%d %b %Y") if event.date else "TBA"
+    push_title = f"📅 New Event: {event.title}"
+    push_body = f"{event.location or 'Location TBA'} • {event_date_str}"
+    
+    # Send to all users with FCM tokens (or chapter-specific if needed in future)
+    all_users_with_tokens = db.query(User).filter(User.fcm_token.isnot(None)).all()
+    for u in all_users_with_tokens:
+        if u.notifications_enabled:
+            send_push_notification(u.id, push_title, push_body, db)
+    
     return event_to_dict(event)
 
 @app.get("/api/events/{event_id}")
@@ -1883,6 +1947,14 @@ def check_in(event_id: int, body: dict = Body(default={}), session = Depends(req
             description=f"Points for attending {event.title}",
         ))
         user.points_balance = (user.points_balance or 0) + event.points
+        
+        # Send push notification for points earned
+        send_push_notification(
+            user.id,
+            "⭐ Points Earned!",
+            f"You earned {event.points} points for attending {event.title}",
+            db
+        )
 
     db.commit()
     db.refresh(ci)
@@ -2081,7 +2153,7 @@ def create_emergency_alert(body: dict = Body(default={}), session = Depends(requ
     else:
         location_str = "location unknown"
     
-    # Notify all admins
+    # Notify all admins (in-app + push)
     admins = db.query(User).filter(User.role == "admin").all()
     for admin in admins:
         notif = Notification(
@@ -2090,8 +2162,9 @@ def create_emergency_alert(body: dict = Body(default={}), session = Depends(requ
             is_read=False
         )
         db.add(notif)
+        send_push_notification(admin.id, "🚨 Emergency Alert", f"{user.name} needs help at {location_str}", db)
     
-    # Notify all members in same chapter
+    # Notify all members in same chapter (in-app + push)
     if user.chapter_id:
         chapter_members = db.query(User).filter(
             User.chapter_id == user.chapter_id,
@@ -2105,6 +2178,7 @@ def create_emergency_alert(body: dict = Body(default={}), session = Depends(requ
                 is_read=False
             )
             db.add(notif)
+            send_push_notification(member.id, "🚨 Emergency Alert", f"Emergency alert from {user.name} at {location_str}", db)
     
     db.commit()
     
@@ -2153,6 +2227,124 @@ def resolve_emergency_alert(body: dict = Body(default={}), session = Depends(req
     db.commit()
     
     return {"alert_id": alert.id, "status": "resolved", "message": "Emergency alert resolved"}
+
+# --- Push Notification endpoints ---
+
+@app.post("/api/notifications/register")
+def register_fcm_token(body: dict = Body(default={}), session = Depends(require_any)):
+    """Register or update FCM token for authenticated user."""
+    db = session["db"]
+    user = session["user"]
+    
+    fcm_token = body.get("fcm_token")
+    if not fcm_token:
+        raise HTTPException(status_code=400, detail="fcm_token required")
+    
+    user.fcm_token = fcm_token
+    db.commit()
+    
+    return {
+        "success": True,
+        "user_id": user.id,
+        "message": "FCM token registered successfully"
+    }
+
+@app.post("/api/notifications/toggle")
+def toggle_notifications(body: dict = Body(default={}), session = Depends(require_any)):
+    """Toggle push notifications on/off for authenticated user."""
+    db = session["db"]
+    user = session["user"]
+    
+    enabled = body.get("enabled")
+    if enabled is None:
+        raise HTTPException(status_code=400, detail="enabled (boolean) required")
+    
+    user.notifications_enabled = bool(enabled)
+    db.commit()
+    
+    return {
+        "success": True,
+        "user_id": user.id,
+        "notifications_enabled": user.notifications_enabled,
+        "message": f"Notifications {'enabled' if user.notifications_enabled else 'disabled'}"
+    }
+
+@app.get("/api/notifications/status")
+def get_notification_status(session = Depends(require_any)):
+    """Get current notification status for authenticated user."""
+    user = session["user"]
+    return {
+        "user_id": user.id,
+        "notifications_enabled": user.notifications_enabled if user.notifications_enabled is not None else True,
+        "fcm_token_registered": bool(user.fcm_token),
+        "fcm_token_preview": user.fcm_token[:20] + "..." if user.fcm_token else None
+    }
+
+@app.post("/api/admin/notifications/send")
+def admin_send_notification(body: dict = Body(default={}), session = Depends(require_admin)):
+    """Send manual push notification to all users or specific user. Admin only."""
+    db = session["db"]
+    
+    title = body.get("title")
+    message = body.get("message") or body.get("body")
+    target_user_id = parse_int(body.get("user_id"))
+    target_chapter_id = parse_int(body.get("chapter_id"))
+    send_to_all = body.get("send_to_all", False)
+    
+    if not title or not message:
+        raise HTTPException(status_code=400, detail="title and message required")
+    
+    # Determine target users
+    target_users = []
+    
+    if send_to_all:
+        target_users = db.query(User).filter(User.fcm_token.isnot(None)).all()
+    elif target_user_id:
+        user = db.query(User).filter(User.id == target_user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        target_users = [user]
+    elif target_chapter_id:
+        target_users = db.query(User).filter(
+            User.chapter_id == target_chapter_id,
+            User.fcm_token.isnot(None)
+        ).all()
+    else:
+        raise HTTPException(status_code=400, detail="Specify user_id, chapter_id, or send_to_all=true")
+    
+    # Filter by notifications_enabled
+    eligible_users = [u for u in target_users if u.notifications_enabled]
+    
+    if not eligible_users:
+        return {
+            "success": True,
+            "sent_count": 0,
+            "message": "No eligible users with notifications enabled and FCM token registered"
+        }
+    
+    # Send push notifications
+    results = []
+    for user in eligible_users:
+        result = send_push_notification(user.id, title, message, db)
+        results.append({"user_id": user.id, "user_name": user.name, "result": result})
+    
+    # Also create in-app notification records
+    for user in eligible_users:
+        notif = Notification(
+            user_id=user.id,
+            message=f"{title}: {message}",
+            is_read=False
+        )
+        db.add(notif)
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "sent_count": len(eligible_users),
+        "skipped_disabled": len(target_users) - len(eligible_users),
+        "results": results
+    }
 
 # --- Emergency Incident endpoints (legacy) ---
 
