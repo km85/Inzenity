@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta
 
 
@@ -62,11 +63,12 @@ def test_official_partner_lifecycle(client, admin_token):
 
 
 def test_merchant_partner_lifecycle(client, admin_token):
+    test_password = secrets.token_urlsafe(24)
     # create merchant user
     r = client.post("/api/users", json={
         "name": "Merchant Owner",
         "username": "merchant1",
-        "password": "***",
+        "password": test_password,
         "phone": "081111111111",
         "role": "merchant",
         "city": "Jakarta",
@@ -90,7 +92,7 @@ def test_merchant_partner_lifecycle(client, admin_token):
     assert any(m["id"] == mid for m in r.json())
 
     # merchant user can login
-    r = client.post("/api/auth/login", json={"username": "merchant1", "password": "***", "scope": "merchant"})
+    r = client.post("/api/auth/login", json={"username": "merchant1", "password": test_password, "scope": "merchant"})
     assert r.status_code == 200
     merchant_token = r.json()["token"]
 
@@ -146,7 +148,7 @@ def test_member_order_flow(client, admin_token, member_token):
 
     # give member points
     users = client.get("/api/users", headers=h(admin_token)).json()
-    member = next(u for u in users if u["username"] == "raka")
+    member = next(u for u in users if u["username"] == "qa-member")
     client.post("/api/point-transactions", json={
         "userId": member["id"],
         "amount": 100,
@@ -216,8 +218,9 @@ def test_order_out_of_stock_fails(client, admin_token, member_token):
 
 
 def test_merchant_rbac_isolation(client, admin_token):
+    test_password = secrets.token_urlsafe(24)
     # create merchant user A and merchant A
-    r = client.post("/api/users", json={"name": "M Owner A", "username": "merch_a", "password": "***", "phone": "1", "role": "merchant", "city": "Jakarta"}, headers=h(admin_token))
+    r = client.post("/api/users", json={"name": "M Owner A", "username": "merch_a", "password": test_password, "phone": "1", "role": "merchant", "city": "Jakarta"}, headers=h(admin_token))
     uid_a = r.json()["id"]
     r = client.post("/api/merchant-partners", json={"name": "Merchant A", "status": "active", "ownerUserId": uid_a}, headers=h(admin_token))
     mid_a = r.json()["id"]
@@ -225,12 +228,12 @@ def test_merchant_rbac_isolation(client, admin_token):
     pid_a = r.json()["id"]
 
     # create merchant user B and merchant B
-    r = client.post("/api/users", json={"name": "M Owner B", "username": "merch_b", "password": "***", "phone": "2", "role": "merchant", "city": "Jakarta"}, headers=h(admin_token))
+    r = client.post("/api/users", json={"name": "M Owner B", "username": "merch_b", "password": test_password, "phone": "2", "role": "merchant", "city": "Jakarta"}, headers=h(admin_token))
     uid_b = r.json()["id"]
     r = client.post("/api/merchant-partners", json={"name": "Merchant B", "status": "active", "ownerUserId": uid_b}, headers=h(admin_token))
     mid_b = r.json()["id"]
 
-    token_a = client.post("/api/auth/login", json={"username": "merch_a", "password": "***", "scope": "merchant"}).json()["token"]
+    token_a = client.post("/api/auth/login", json={"username": "merch_a", "password": test_password, "scope": "merchant"}).json()["token"]
 
     r = client.get("/api/products", headers=h(token_a))
     assert r.status_code == 200

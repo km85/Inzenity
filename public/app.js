@@ -41,7 +41,8 @@ const state = {
   myRedemptions: [],
 };
 
-const screens = ["home", "my-zenix", "events", "event-detail", "sponsor-detail", "merch-detail", "product-detail", "vendors", "merchandise", "merchant-partners", "merchant-detail", "leaderboard"];
+const initialMemberState = JSON.stringify(state);
+const screens = ["tools", "home", "my-zenix", "events", "event-detail", "sponsor-detail", "merch-detail", "product-detail", "vendors", "merchandise", "merchant-partners", "merchant-detail", "leaderboard"];
 
 // i18n is provided by /i18n.js (window.I18N). We keep a local alias `t`
 // for convenience, and sync state.language with I18N on change.
@@ -54,30 +55,25 @@ function applyStaticTranslations() {
 }
 
 async function api(path, options = {}) {
-  const base = window.API_BASE_URL || "";
+  const base = memberApiOrigin();
   const token = localStorage.getItem("api_token");
-  const headers = {
-    "Content-Type": "application/json",
-    ...(token ? { "X-API-Token": token } : {}),
-    ...options.headers
-  };
-  const url = base + path;
+  const headers = {"Content-Type": "application/json", ...options.headers};
+  if (token) headers["X-API-Token"] = token;
+  changeProgress(1);
   try {
-    const response = await fetch(url, {
-      headers,
-      credentials: "omit",
-      ...options
-    });
-
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch (e) { data = { error: text }; }
-    if (!response.ok) {
-      throw new Error(data.error || data.detail || text || "Request failed");
+    const response = await fetch(base + path, {...options, headers, credentials: "omit", cache: "no-store"});
+    if (response.status === 401 && token === localStorage.getItem("api_token") && token) {
+      localStorage.removeItem("api_token");
+      showLogin();
     }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : data.error || ("Request failed (" + response.status + ")"));
     return data;
   } catch (err) {
-    throw new Error("Network error: " + (err.message || err) + " (URL: " + url + ")");
+    if (err instanceof TypeError) throw new Error(words("Tidak dapat terhubung. Periksa koneksi.", "Could not connect. Check your connection."));
+    throw err;
+  } finally {
+    changeProgress(-1);
   }
 }
 
@@ -140,7 +136,7 @@ function loadTheme() {
   if (saved === "light" || saved === "dark") {
     state.theme = saved;
   } else {
-    state.theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    state.theme = "dark";
   }
   applyTheme();
 }
@@ -174,7 +170,7 @@ async function setLanguage(lang) {
   if (lang !== "id" && lang !== "en") return;
   state.language = lang;
   localStorage.setItem(languageKey(), lang);
-  if (window.I18N) window.I18N.setLang(lang);
+  if (window.I18N && window.I18N.getLang() !== lang) window.I18N.setLang(lang);
   if (state.user) {
     try {
       await api("/api/me/language", { method: "PUT", body: JSON.stringify({ language: lang }) });
@@ -183,7 +179,7 @@ async function setLanguage(lang) {
     }
   }
   applyStaticTranslations();
-  renderChrome();
+  if (state.user) { renderChrome(); navigate(location.hash); }
 }
 
 function loadCarProfile() {
@@ -230,7 +226,10 @@ function readFileBase64(file) {
 }
 
 function showLogin() {
-  state.user = null;
+  clearTimeout(state.heroTimer);
+  Object.assign(state, JSON.parse(initialMemberState), {language: state.language, theme: state.theme, publicChapters: state.publicChapters, publicVehicleOptions: state.publicVehicleOptions});
+  document.querySelectorAll(".screen").forEach(screen => { screen.textContent = ""; });
+  document.getElementById("loginPassword").value = "";
   document.getElementById("appView").classList.add("hidden");
   document.getElementById("loginView").classList.remove("hidden");
   document.getElementById("loginForm").classList.remove("hidden");
@@ -266,7 +265,7 @@ function setActiveScreen(screen) {
 
   document.querySelectorAll(".member-nav-link").forEach((link) => {
     const linkScreen = link.dataset.screen;
-    const isActive = linkScreen === screen || (linkScreen === "home" && screen === "event-detail") || (linkScreen === "home" && screen === "sponsor-detail") || (linkScreen === "merchandise" && (screen === "merch-detail" || screen === "product-detail")) || (linkScreen === "vendors" && (screen === "merchant-detail" || screen === "merchant-partners")) || (linkScreen === "events" && screen === "event-detail");
+    const isActive = linkScreen === screen || (linkScreen === "events" && screen === "event-detail");
     link.classList.toggle("active", isActive);
   });
 }
@@ -282,7 +281,7 @@ function closeDrawer() {
 }
 
 function getUserRsvp(event) {
-  return event.rsvps.find((item) => item.userId === state.user.id);
+  return (event.rsvps || []).find((item) => item.userId === state.user.id);
 }
 
 function getHeroSlides() {
@@ -346,6 +345,7 @@ function renderHome() {
   const merchantPartners = getMerchantPartners();
 
   document.getElementById("screen-home").innerHTML = `
+    ${memberOverview()}
     <section class="home-hero-card">
       ${activeSlide ? `
         <div class="hero-banner ${activeSlide.coverClass}" id="heroBanner" role="button" tabindex="0">
@@ -434,11 +434,19 @@ function renderHome() {
           <p class="section-kicker">Instagram</p>
           <p>${t("followUsText")}</p>
         </div>
-        <a class="primary-button" href="https://instagram.com" target="_blank" rel="noreferrer">${t("openInstagram")}</a>
+        <a class="primary-button" href="https://www.instagram.com/inzenity.jabodetabek/" target="_blank" rel="noreferrer">${t("openInstagram")}</a>
       </article>
     </section>
   `;
 
+  document.querySelectorAll("#screen-home .sponsor-grid, #screen-home .news-grid").forEach(grid => {
+    if (!grid.children.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state small";
+      empty.textContent = words("Belum ada informasi.", "No entries yet.");
+      grid.append(empty);
+    }
+  });
   attachHeroSwipe();
 
   document.querySelectorAll("[data-hero-index]").forEach((button) => {
@@ -963,7 +971,7 @@ function renderRewardsSection() {
 function renderMyOrdersSection() {
   const orders = state.myOrders.slice(0, 10);
   return `
-    <article class="member-card">
+    <article class="member-card order-history">
       <div class="section-title-row">
         <div>
           <p class="section-kicker">${t("merchandise")}</p>
@@ -987,15 +995,18 @@ function renderMyOrdersSection() {
   `;
 }
 
-async function requestRedemption(rewardId) {
+async function requestRedemption(rewardId, button) {
+  if (button.disabled) return;
+  button.disabled = true;
   try {
+    if (!confirm(words("Tukar poin untuk hadiah ini?", "Redeem points for this reward?"))) return;
     await api("/api/redemptions", { method: "POST", body: JSON.stringify({ rewardId }) });
     alert(t("redemptionRequested"));
     await loadMemberPhase2Data();
     renderMyZenix();
   } catch (err) {
     alert(err.message);
-  }
+  } finally { button.disabled = false; }
 }
 
 function renderEvents() {
@@ -1178,12 +1189,16 @@ function renderEventDetail(eventId) {
     });
   });
 
+  const qr = new URLSearchParams(location.search);
+  const tokenField = screen.querySelector("#checkInToken");
+  if (tokenField && qr.get("event") === String(event.id)) tokenField.value = qr.get("token") || "";
   const checkInButton = screen.querySelector("#eventCheckInButton");
   if (checkInButton) {
     checkInButton.addEventListener("click", async () => {
-      const token = document.getElementById("checkInToken").value.trim();
+      const input = document.getElementById("checkInToken").value.trim();
       const msg = document.getElementById("checkInMessage");
       try {
+        const token = checkInValue(input, event.id);
         await api(`/api/events/${event.id}/check-in`, {
           method: "POST",
           body: JSON.stringify({ qrToken: token, method: "qr" })
@@ -1442,6 +1457,10 @@ function renderProductDetail() {
 
   document.getElementById("orderForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const submit = event.currentTarget.querySelector("[type=submit]");
+    if (submit.disabled || !confirm(words("Kirim pesanan ini?", "Place this order?"))) return;
+    submit.disabled = true;
+    let savedOrder;
     const form = new FormData(event.currentTarget);
     const variantId = form.get("variantId") || null;
     const quantity = Number(form.get("quantity")) || 1;
@@ -1463,6 +1482,7 @@ function renderProductDetail() {
         })
       });
 
+      savedOrder = order;
       if (paymentFile) {
         const paymentProofImage = await readFileBase64(paymentFile);
         await api(`/api/orders/${order.id}/payment`, {
@@ -1474,10 +1494,13 @@ function renderProductDetail() {
       document.getElementById("orderMessage").textContent = `Order ${order.orderNumber} ${paymentFile ? "dan bukti pembayaran" : "dibuat"}.`;
       document.getElementById("orderMessage").className = "form-message success";
       await loadMemberPhase2Data();
+      renderMyZenix();
     } catch (err) {
       const msg = document.getElementById("orderMessage");
-      msg.textContent = err.message;
+      msg.textContent = savedOrder ? words("Pesanan tersimpan. Bukti pembayaran gagal diunggah. ", "Order saved. Payment proof upload failed. ") + savedOrder.orderNumber : err.message;
       msg.className = "form-message error";
+    } finally {
+      submit.disabled = Boolean(savedOrder);
     }
   });
 }
@@ -1538,7 +1561,13 @@ async function renderMerchantDetail(merchantId) {
   try {
     products = await api(`/api/public/products?merchant_id=${merchant.id}`);
   } catch (err) {
-    console.error("Failed to load merchant products", err);
+    screen.textContent = "";
+    const error = document.createElement("p");
+    error.className = "empty-state";
+    error.textContent = err.message;
+    screen.append(error);
+    showNotice(err.message);
+    return;
   }
 
   screen.innerHTML = `
@@ -1818,6 +1847,7 @@ function renderChrome() {
   }
   loadCarProfile();
   applyStaticTranslations();
+  if (window.I18N && window.I18N.getLang() !== state.language) window.I18N.setLang(state.language);
   renderHome();
   renderMyZenix();
   renderEvents();
@@ -1838,13 +1868,15 @@ function navigate(hash) {
     return;
   }
 
-  if (hash.startsWith("#event-")) {
+  if (navigateMemberTool(hash)) return;
+  window.scrollTo(0, 0);
+  if (/^#event-\d+$/.test(hash)) {
     renderEventDetail(Number(hash.replace("#event-", "")));
     setActiveScreen("event-detail");
     return;
   }
 
-  if (hash.startsWith("#merchant-")) {
+  if (/^#merchant-\d+$/.test(hash)) {
     renderMerchantDetail(Number(hash.replace("#merchant-", "")));
     setActiveScreen("merchant-detail");
     return;
@@ -1853,6 +1885,7 @@ function navigate(hash) {
   const screen = hash.replace("#", "");
   if (screens.includes(screen)) {
     setActiveScreen(screen);
+    if (screen === "home") renderHome();
     if (screen === "vendors") renderVendors();
     if (screen === "sponsor-detail") renderSponsorDetail();
     if (screen === "merch-detail") renderMerchDetail();
@@ -1915,20 +1948,20 @@ async function loadReferenceData() {
     state.chapters = chapters || [];
     state.vehicleOptions = options || { models: [], powertrains: [], years: [], tshirtSizes: [], reminderOptions: [] };
   } catch (err) {
-    console.error("Failed to load reference data", err);
+    showNotice(err.message);
   }
 }
 
 async function loadPublicReferenceData() {
   try {
     const [chapters, options] = await Promise.all([
-      fetch((window.API_BASE_URL || "") + "/api/public/chapters").then((r) => r.json()),
-      fetch((window.API_BASE_URL || "") + "/api/public/vehicle-options").then((r) => r.json())
+      api("/api/public/chapters"),
+      api("/api/public/vehicle-options")
     ]);
     state.publicChapters = chapters || [];
     state.publicVehicleOptions = options || { models: [], powertrains: [], years: [], tshirtSizes: [] };
   } catch (err) {
-    console.error("Failed to load public reference data", err);
+    showNotice(err.message);
   }
 }
 
@@ -1948,7 +1981,7 @@ async function loadMemberPhase2Data() {
     state.myRedemptions = redemptions || [];
     state.myOrders = orders || [];
   } catch (err) {
-    console.error("Failed to load member phase2 data", err);
+    showNotice(err.message);
   }
 }
 
@@ -1975,6 +2008,7 @@ async function loadProfile() {
     });
   } catch (err) {
     state.profileError = err.message;
+    showNotice(err.message);
   } finally {
     state.loadingProfile = false;
   }
@@ -2017,19 +2051,6 @@ async function bootApp() {
   loadLanguagePreference();
   if (window.I18N) window.I18N.initToggle("langToggle");
   applyStaticTranslations();
-  loadPublicReferenceData(); // no auth needed
-  const hasSession = await restoreSession();
-  if (hasSession) {
-    showApp();
-    await Promise.all([loadData(), loadReferenceData(), loadMemberPhase2Data()]);
-    await loadProfile();
-    renderChrome();
-    startHeroRotation();
-    navigate(location.hash || "#home");
-  } else {
-    showLogin();
-  }
-
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const msgEl = document.getElementById("loginMessage");
@@ -2051,12 +2072,8 @@ async function bootApp() {
         localStorage.setItem(languageKey(), result.user.language);
       }
       localStorage.setItem("api_token", result.token);
-      showApp();
-      await Promise.all([loadData(), loadReferenceData(), loadMemberPhase2Data()]);
-      await loadProfile();
-      renderChrome();
-      startHeroRotation();
-      location.hash = "#home";
+      document.getElementById("loginPassword").value = "";
+      await enterMemberApp(memberEntryHash() || "#home");
     } catch (err) {
       console.error(err);
       if (msgEl) {
@@ -2065,14 +2082,6 @@ async function bootApp() {
         msgEl.classList.remove("success");
       }
     }
-  });
-
-  document.querySelectorAll("[data-demo-username]").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.getElementById("loginUsername").value = button.dataset.demoUsername;
-      document.getElementById("loginPassword").value = button.dataset.demoPassword;
-      document.getElementById("loginPassword").focus();
-    });
   });
 
   document.getElementById("showRegisterButton")?.addEventListener("click", showRegister);
@@ -2086,15 +2095,28 @@ async function bootApp() {
 
   document.querySelectorAll("[data-drawer-target]").forEach((button) => {
     button.addEventListener("click", () => {
+      closeDrawer();
       location.hash = `#${button.dataset.drawerTarget}`;
     });
   });
 
+  installMemberChrome();
+  document.addEventListener("zenix:langchange", event => {
+    if (event.detail.lang !== state.language) setLanguage(event.detail.lang);
+  });
+  await loadPublicReferenceData();
+  if (localStorage.getItem("api_token") && await restoreSession()) {
+    await enterMemberApp(memberEntryHash() || location.hash || "#home");
+  } else if (!state.user && document.getElementById("registerForm").classList.contains("hidden")) {
+    showLogin();
+  }
+
+  document.body.dataset.ready = "true";
   window.addEventListener("hashchange", () => navigate(location.hash));
 
   document.body.addEventListener("click", (e) => {
     if (e.target.matches("[data-redeem]")) {
-      requestRedemption(e.target.dataset.redeem);
+      requestRedemption(e.target.dataset.redeem, e.target);
     }
   });
 }

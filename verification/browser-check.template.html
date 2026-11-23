@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>INZENITY isolated browser validation</title><h1>INZENITY browser validation</h1><button id="run">Run browser checks</button><pre id="log">Ready</pre><iframe title="Dashboard under test" width="1440" height="860"></iframe><script>
+document.querySelector('#run').onclick=async event=>{
+ event.currentTarget.disabled=true;
+ const log=document.querySelector('#log'),frame=document.querySelector('iframe'),lines=[];
+ const report=t=>{lines.push(t);log.textContent=lines.join('\n')};
+ const sleep=n=>new Promise(r=>setTimeout(r,n));
+ async function until(fn,msg){for(let i=0;i<250;i++){if(fn())return;await sleep(35)}throw Error(msg)}
+ const $=s=>frame.contentDocument.querySelector(s),all=s=>[...frame.contentDocument.querySelectorAll(s)];
+ async function open(path){const ready=new Promise(r=>frame.onload=r);frame.src=path;await ready}
+ async function dashboard(){await until(()=>$('.summary-tile'),'Dashboard did not finish loading')}
+ async function go(key){const button=$('[data-tab="'+key+'"]');const mobile=frame.contentWindow.innerWidth<851;if(mobile)$('#navToggle').click();
+ button.closest('details')?.setAttribute('open','');button.click();await until(()=>!!$('[aria-current="page"][data-tab="'+key+'"]'),'Navigation failed: '+key);
+ if(key==='leaderboard')await until(()=>!$('#loadLeaderboardButton').disabled,'Leaderboard did not load')}
+ const must=(value,msg)=>{if(!value)throw Error(msg)};
+ const fill=(field,value)=>{$('#recordForm [name="'+field+'"]').value=value};
+ try {
+ await open('/admin.html');await until(()=>$('#adminLoginForm button') && !$('#adminLoginForm button').disabled,'Login required');
+ $('#adminUsername').value='qa-admin'; $('#adminPassword').value=FIXTURE_SECRET; $('#adminLoginForm').requestSubmit();
+ await dashboard();report('PASS  Authenticated sign-in and guest redirect');
+ for(const width of [1440,390]){
+ frame.width=width;await sleep(100);
+ const keys=all('[data-tab]').map(x=>x.dataset.tab).filter(x=>x!=='dashboard');
+ must(new Set(keys).size===21,'Incorrect module inventory');
+ for(const key of keys){await go(key);must($('#tableArea h3'),'Missing module '+key);
+ must(frame.contentDocument.documentElement.scrollWidth<=frame.contentWindow.innerWidth+1,'Overflow '+width+' '+key);
+ if(width===390)must(!frame.contentDocument.body.classList.contains('drawer-open'),'Drawer did not close')}
+ report('PASS  All 21 modules render at '+width+'px with contained horizontal scrolling');
+ }
+ frame.width=1440;await sleep(100);await go('news');
+ must($('#tableArea .empty-state'),'Missing empty state');
+ $('#newRecordButton').click();fill('title','Synthetic browser article');fill('date','2026-11-20');fill('image','/admin-v2/club-mark.webp');fill('category','Test');
+ $('#recordForm').requestSubmit();await until(()=>$('#tableArea [data-edit]'),'Create did not persist');
+ $('#tableArea [data-edit]').click();fill('title','Edited browser article');$('#recordForm').requestSubmit();
+ await until(()=>$('#tableArea').textContent.includes('Edited browser article'),'Edit failed');
+ await open('/admin.html');await dashboard();await go('news');must($('#tableArea').textContent.includes('Edited browser article'),'Edited record missing after reload');
+ frame.contentWindow.confirm=()=>false;$('#tableArea [data-delete]').click();must($('#tableArea [data-edit]'),'Cancelled delete removed record');
+ await until(()=>!$('#tableArea [data-delete]').disabled,'Cancel did not release the delete button');
+ frame.contentWindow.confirm=()=>true;$('#tableArea [data-delete]').click();await until(()=>$('#tableArea .empty-state'),'Delete failed');
+ await open('/admin.html');await dashboard();await go('news');must($('#tableArea .empty-state'),'Delete failed to persist');
+ report('PASS  Modal create/edit, refresh persistence, cancel/confirm delete, empty state');
+ await go('dashboard');const win=frame.contentWindow,orig=win.fetch;let sawBusy=false;
+ win.fetch=async(...args)=>{if(args[0]==='/api/leaderboard'||String(args[0]).startsWith('/api/leaderboard?')){sawBusy=!$('#apiProgress').hidden;return new win.Response('{}',{status:503})}return orig.apply(win,args)};
+ await go('leaderboard');must($('#leaderboardResults').textContent.includes('server'),'Missing error feedback');must(sawBusy,'Missing loading indicator');
+ win.fetch=orig;$('#loadLeaderboardButton').click();await until(()=>!$('#loadLeaderboardButton').disabled,'Retry stalled');
+ must(!$('#leaderboardResults').textContent.includes('server'),'Retry failed');report('PASS  Loading indicator, simulated 503, retry against real API');
+ $('#adminLogoutButton').click();await until(()=>$('#adminLoginForm'),'Logout failed');await open('/admin.html');await until(()=>$('#adminLoginForm'),'Logged out user could access dashboard');
+ report('PASS  Logout and protected re-entry');report('COMPLETE');
+ }catch(e){report('FAIL  '+e.message)}
+};
+</script></html>

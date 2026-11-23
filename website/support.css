@@ -1,0 +1,24 @@
+:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px }
+[id] { scroll-margin-top: 82px }
+.support-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 24px; padding: 16px 0 }
+.support-nav > a { color: #c2d4e3; font-size: .94rem }
+.support-nav > a:hover, .policy-related a:hover { text-decoration: underline }
+.policy { max-width: 48rem; padding-block: clamp(3rem, 7vw, 6rem); font-size: 1rem; line-height: 1.7 }
+.policy h1 { font-size: clamp(3rem, 7vw, 5.5rem); margin-bottom: .35em }
+.policy h2 { font-size: clamp(1.65rem, 4vw, 2.3rem); margin: 1.15em 0 .4em }
+.policy p, .policy li { color: #c5d5e0 }
+.policy p { margin-bottom: 1rem }
+.policy .draft { background: var(--bg2); padding: .8rem 1rem; border-left: 3px solid var(--cyan); margin: 1.5rem 0 2rem }
+.policy a { color: #55caff; text-decoration: underline; text-underline-offset: .18em }
+.policy li + li { margin-top: .5em }
+.policy ol, .policy ul { padding-left: 1.4em }
+.policy-related { display:flex; gap: 1rem 1.5rem; flex-wrap:wrap; margin-top: 2.25rem; border-top: 1px solid var(--line); padding-top: 1.25rem }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } *, *::before, *::after { transition-duration: 0s !important } }
+
+.contact-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem 1.2rem; margin: .85rem 0 0; font-style: normal; font-size: .875rem }
+.contact-links a { color: #c9e7f6; overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: .2em }
+.contact-links a:hover { color: var(--cyan) }
+.footer-main .contact-links { display: grid; gap: .45rem; margin: 0; font-size: .8rem }
+.footer-main > div { min-width: 0 }
+.contact-links a:focus-visible { outline-offset: 2px }
+.policy .request-link { color: white; text-decoration: none }

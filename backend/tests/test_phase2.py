@@ -1,8 +1,7 @@
+import secrets
 from datetime import datetime, timedelta
 import pytest
 
-ADMIN_CREDS = {"username": "admin", "password": "admin123", "scope": "admin"}
-MEMBER_CREDS = {"username": "raka", "password": "member123", "scope": "member"}
 
 
 def h(token):
@@ -70,13 +69,14 @@ def test_member_login_and_profile(client, member_token):
 
 
 def test_registration_approval_flow(client, admin_token):
+    test_password = secrets.token_urlsafe(24)
     chapters = client.get("/api/public/chapters").json()
     assert chapters
     chapter_id = chapters[0]["id"]
 
     reg_payload = {
         "username": "newmember_p2",
-        "password": "newpass123",
+        "password": test_password,
         "fullName": "New Member Phase2",
         "email": "newmember@example.com",
         "phone": "081234567899",
@@ -107,7 +107,7 @@ def test_registration_approval_flow(client, admin_token):
     # New member can login
     r = client.post("/api/auth/login", json={
         "username": "newmember_p2",
-        "password": "newpass123",
+        "password": test_password,
         "scope": "member",
     })
     assert r.status_code == 200
@@ -190,7 +190,7 @@ def test_geo_checkin_inside_radius_succeeds(client, admin_token, member_token):
 def test_admin_manual_point_transaction(client, admin_token, member_token):
     # Find member id
     users = client.get("/api/users", headers=h(admin_token)).json()
-    member = next(u for u in users if u["username"] == "raka")
+    member = next(u for u in users if u["username"] == "qa-member")
 
     r = client.post("/api/point-transactions", json={
         "userId": member["id"],
@@ -209,7 +209,7 @@ def test_admin_manual_point_transaction(client, admin_token, member_token):
 def test_reward_redemption_and_approval_flow(client, admin_token, member_token):
     # Give member some points
     users = client.get("/api/users", headers=h(admin_token)).json()
-    member = next(u for u in users if u["username"] == "raka")
+    member = next(u for u in users if u["username"] == "qa-member")
     client.post("/api/point-transactions", json={
         "userId": member["id"],
         "amount": 200,
@@ -247,7 +247,7 @@ def test_reward_redemption_and_approval_flow(client, admin_token, member_token):
 
 def test_redemption_rejected_keeps_points(client, admin_token, member_token):
     users = client.get("/api/users", headers=h(admin_token)).json()
-    member = next(u for u in users if u["username"] == "raka")
+    member = next(u for u in users if u["username"] == "qa-member")
     client.post("/api/point-transactions", json={
         "userId": member["id"],
         "amount": 100,
@@ -276,7 +276,7 @@ def test_redemption_insufficient_points_fails(client, admin_token, member_token)
 
 def test_leaderboard_reflects_points(client, admin_token, member_token):
     users = client.get("/api/users", headers=h(admin_token)).json()
-    member = next(u for u in users if u["username"] == "raka")
+    member = next(u for u in users if u["username"] == "qa-member")
     client.post("/api/point-transactions", json={
         "userId": member["id"],
         "amount": 500,

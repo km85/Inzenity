@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Innova Zenix Community</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/member-v2/member.css">
+</head>
+<body data-theme="dark">
+  <div id="requestProgress" class="progress hidden" role="status" aria-label="Loading"></div>
+  <aside id="connectionNotice" class="notice hidden" role="status"><span></span><button type="button" id="retryReads">Retry</button></aside>
+  <div id="loginView" class="login-wrap">
+    <div class="login-card"><img class="auth-logo" src="/member-v2/club-mark.webp" alt="INZENITY">
+      <div class="eyebrow" data-i18n="loginTitle">Member Login</div>
+      <h1 data-i18n="appTitle">Innova Zenix Community</h1>
+      <p class="muted" data-i18n="loginSubtitle">Sign in with your member account to enter the club app.</p>
+      <form id="loginForm" method="post">
+        <div id="loginMessage" class="form-message" style="margin-bottom: 12px;"></div>
+        <div class="input-group">
+          <label for="loginUsername" data-i18n="username">Username</label>
+          <input id="loginUsername" autocomplete="username" name="username" type="text" required>
+        </div>
+        <div class="input-group">
+          <label for="loginPassword" data-i18n="password">Password</label>
+          <input id="loginPassword" autocomplete="current-password" name="password" type="password" required>
+        </div>
+        <button class="primary-button" type="submit" data-i18n="enterApp">Enter Community App</button>
+      </form>
+      <div class="auth-switch" style="margin-top: 18px; text-align: center;">
+        <span class="muted" data-i18n="noAccount">Belum punya akun?</span>
+        <button class="link-button" id="showRegisterButton" type="button" data-i18n="registerNow">Daftar sekarang</button>
+      </div>
+      <p class="admin-entry" role="status">Internal debug · Staging is disconnected. Sign-in and registration require the staging server.</p>
+      <form id="registerForm" method="post" class="hidden" style="margin-top: 18px;">
+        <div class="eyebrow" data-i18n="registerTitle">Member Registration</div>
+        <p class="muted" data-i18n="registerSubtitle">Isi data kamu. Admin akan review dan approve akunmu.</p>
+        <div id="registerFields"></div>
+        <button class="primary-button" type="submit" data-i18n="submitRegistration">Kirim Pendaftaran</button>
+        <button class="ghost-button" id="backToLoginButton" type="button" data-i18n="backToLogin" style="margin-top: 8px;">Kembali ke Login</button>
+        <div id="registerMessage" class="form-message" style="margin-top: 12px;"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="appView" class="member-shell hidden">
+    <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+
+    <aside id="sideDrawer" class="side-drawer hidden">
+      <div class="drawer-top">
+        <div class="avatar-circle" id="drawerAvatar"></div>
+        <div>
+          <strong id="drawerName"></strong>
+          <p id="drawerUsername" class="muted"></p>
+        </div>
+      </div>
+      <nav class="drawer-menu">
+        <button class="drawer-link" type="button" data-drawer-target="my-zenix">
+          <span><span class="icon">🚙</span> <span data-i18n="myZenix">My Zenix</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="events">
+          <span><span class="icon">📅</span> <span data-i18n="events">Events</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="vendors">
+          <span><span class="icon">🛠</span> <span data-i18n="vendors">Vendors</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="merchandise">
+          <span><span class="icon">🛒</span> <span data-i18n="merchandise">Merchandise</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="merchant-partners">
+          <span><span class="icon">🏪</span> <span data-i18n="merchantPartners">Merchant Partners</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="leaderboard">
+          <span><span class="icon">🏆</span> <span data-i18n="leaderboard">Leaderboard</span></span>
+        </button>
+        <button class="drawer-link" type="button" data-drawer-target="notifications">Notifications</button>
+        <button class="drawer-link" type="button" data-drawer-target="plate">Plate search</button>
+        <button class="drawer-link" type="button" data-drawer-target="sos">Emergency SOS</button>
+        <button class="drawer-link theme-toggle" id="themeToggle" type="button">
+          <span><span class="icon" id="themeIcon">🌙</span> <span id="themeLabel" data-i18n="darkMode">Dark mode</span></span>
+        </button>
+        <div class="drawer-link lang-toggle-row" id="langToggleRow" style="cursor:default;">
+          <span><span class="icon">🌐</span> <span data-i18n="language">Bahasa</span></span>
+          <div id="langToggle" style="margin-left:auto;"></div>
+        </div>
+        <button class="drawer-link danger-link" id="drawerLogoutButton" type="button">
+          <span><span class="icon">↪</span> <span data-i18n="logout">Logout</span></span>
+        </button>
+      </nav>
+    </aside>
+
+    <header class="member-header">
+      <a href="#home"><img class="header-logo" src="/member-v2/club-mark.webp" alt="INZENITY"></a>
+      <span id="greetingName" hidden></span>
+      <a class="icon-button" href="#notifications" aria-label="Notifications" data-icon="bell"></a>
+      <button id="menuButton" class="icon-button" type="button" aria-label="Menu and settings" data-icon="menu"></button>
+    </header>
+
+    <main class="member-main"><section id="screen-tools" class="screen hidden"></section>
+      <section id="screen-home" class="screen"></section>
+      <section id="screen-my-zenix" class="screen hidden"></section>
+      <section id="screen-events" class="screen hidden"></section>
+      <section id="screen-event-detail" class="screen hidden"></section>
+      <section id="screen-vendors" class="screen hidden"></section>
+      <section id="screen-merchandise" class="screen hidden"></section>
+      <section id="screen-sponsor-detail" class="screen hidden"></section>
+      <section id="screen-merch-detail" class="screen hidden"></section>
+      <section id="screen-product-detail" class="screen hidden"></section>
+      <section id="screen-merchant-partners" class="screen hidden"></section>
+      <section id="screen-merchant-detail" class="screen hidden"></section>
+      <section id="screen-leaderboard" class="screen hidden"></section>
+    </main>
+
+    <nav class="member-bottom-nav" aria-label="Member navigation">
+      <a href="#home" class="member-nav-link" data-screen="home"><span data-icon="home"></span><span>Home</span></a>
+      <a href="#events" class="member-nav-link" data-screen="events"><span data-icon="calendar"></span><span>Events</span></a>
+      <a href="#vehicle" class="member-nav-link" data-screen="vehicle"><span data-icon="car"></span><span>My Vehicle</span></a>
+      <a href="#profile" class="member-nav-link" data-screen="profile"><span data-icon="user"></span><span>Profile</span></a>
+    </nav>
+  </div>
+
+  <script src="/member-v2/config.js"></script>
+  <script src="/i18n.js"></script>
+  <script src="/member-v2/member.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

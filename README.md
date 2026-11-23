@@ -2,7 +2,9 @@
 
 Lightweight local MVP for an Innova Zenix community app with a mobile-first member experience and a simple admin dashboard.
 
-## Stack
+Current checkpoint and validation instructions: [Phase 3 development checkpoint](docs/development-checkpoint.md)
+
+## Legacy PowerShell MVP stack
 
 This project uses plain HTML, CSS, JavaScript, and a small PowerShell TCP-based local web server. It stays dependency-free and is easy to run on a Windows machine with PowerShell.
 
@@ -43,7 +45,7 @@ Requirements:
 Open PowerShell in this folder:
 
 ```powershell
-cd C:\Users\LENOVO\Documents\Codex
+cd path\to\Inzenity
 ```
 
 Reset the working data to the demo seed if needed:
@@ -65,20 +67,9 @@ Open these URLs in a browser:
 
 Stop the server with `Ctrl+C` in the PowerShell window running it.
 
-## Demo Login
+## Local accounts
 
-Member demo accounts:
-
-- `raka / member123`
-- `dina / member123`
-- `bimo / member123`
-- `nadya / member123`
-
-Admin demo account:
-
-- `admin / admin123`
-
-The member landing page includes quick demo buttons for seeded member accounts.
+The development checkpoint contains an empty seed. Automated tests create disposable accounts in isolated databases. Keep member records and credentials outside Git.
 
 ## Notes
 

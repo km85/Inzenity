@@ -1343,7 +1343,6 @@ def get_users(session = Depends(require_admin)):
         "id": u.id,
         "name": u.name,
         "username": u.username,
-        "password": u.password,
         "phone": u.phone,
         "role": u.role,
         "city": u.city,
@@ -3478,6 +3477,26 @@ def update_order_status(order_id: int, body: dict = Body(default={}), session = 
     new_status = body.get("status")
     if not new_status:
         raise HTTPException(status_code=400, detail="status required")
+    # Claim the first fulfillment transition in the same SQLite write transaction
+    # as the status history. Combining the test and decrement in one UPDATE
+    # prevents two workers or a retried request from charging stock twice.
+    fulfillment = ("processing", "shipped", "completed")
+    if new_status in fulfillment and order.variant_id:
+        fulfilled_before = db.query(OrderStatusHistory.id).filter(
+            OrderStatusHistory.order_id == order.id,
+            OrderStatusHistory.status.in_(fulfillment),
+        ).exists()
+        already_fulfilled = db.query(Order.id).filter(
+            Order.id == order.id, Order.status.in_(fulfillment),
+        ).exists()
+        db.query(ProductVariant).filter(
+            ProductVariant.id == order.variant_id,
+            ProductVariant.stock > 0,
+            ~fulfilled_before,
+            ~already_fulfilled,
+        ).update({
+            ProductVariant.stock: func.max(0, ProductVariant.stock - order.quantity)
+        }, synchronize_session=False)
     order.status = new_status
     order.updated_at = datetime.utcnow()
     note = body.get("note", f"Status updated to {new_status}")
@@ -3488,11 +3507,6 @@ def update_order_status(order_id: int, body: dict = Body(default={}), session = 
         note=note,
         created_by=user.id,
     ))
-    # Decrement stock when moving to processing or beyond (if not already)
-    if new_status in ("processing", "shipped", "completed") and order.variant_id:
-        variant = db.query(ProductVariant).filter(ProductVariant.id == order.variant_id).first()
-        if variant and variant.stock is not None and variant.stock > 0:
-            variant.stock = max(0, variant.stock - order.quantity)
     db.commit()
     db.refresh(order)
     return order_to_dict(order, include_history=True)

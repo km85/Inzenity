@@ -1,4 +1,5 @@
 import os
+import secrets
 import pytest
 
 # Force in-memory DB for tests so importing main.py does not touch the real file DB.
@@ -9,7 +10,7 @@ from sqlalchemy import create_engine, StaticPool
 from sqlalchemy.orm import sessionmaker
 
 import main
-from main import app, Base, seed_database, seed_reference_data
+from main import app, Base, seed_reference_data
 
 # Use StaticPool so the in-memory database is shared across the main thread and
 # the TestClient worker thread.
@@ -24,25 +25,26 @@ TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_eng
 main.engine = test_engine
 main.SessionLocal = TestSessionLocal
 
-# Create schema and seed reference/demo data once.
-Base.metadata.create_all(bind=test_engine)
-seed_database()
-seed_reference_data()
-
-ADMIN_CREDS = {"username": "admin", "password": "admin123", "scope": "admin"}
-MEMBER_CREDS = {"username": "raka", "password": "member123", "scope": "member"}
+ADMIN_CREDS = {"username": "qa-admin", "password": secrets.token_urlsafe(24), "scope": "admin"}
+MEMBER_CREDS = {"username": "qa-member", "password": secrets.token_urlsafe(24), "scope": "member"}
 
 
-@pytest.fixture(scope="function")
-def client():
-    """Fresh TestClient with the in-memory test DB reset before each test."""
-    with TestClient(app) as c:
-        # Login as admin and reset DB so each test starts from seeded state.
-        r = c.post("/api/auth/login", json=ADMIN_CREDS)
-        assert r.status_code == 200, r.text
-        reset = c.post("/api/reset")
-        assert reset.status_code == 200, reset.text
-        yield c
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """Use a fresh schema and disposable local accounts for each test."""
+    monkeypatch.setattr(main, "public_dir", str(tmp_path))
+    monkeypatch.setattr(main, "uploads_dir", str(tmp_path / "uploads" / "chapters"))
+    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
+    seed_reference_data()
+    with TestSessionLocal() as db:
+        for user_id, credentials in enumerate((MEMBER_CREDS, ADMIN_CREDS), 1):
+            db.add(main.User(id=user_id, username=credentials["username"],
+                             password=credentials["password"], role=credentials["scope"],
+                             name=credentials["username"], phone="", city="Test"))
+        db.commit()
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def login_as(client: TestClient, creds: dict) -> str:

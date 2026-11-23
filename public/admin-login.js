@@ -1,27 +1,29 @@
-async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    ...options
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Request failed");
-  }
-  return data;
-}
-
-document.getElementById("adminLoginForm").addEventListener("submit", async (event) => {
+const form = document.getElementById('adminLoginForm');
+form.addEventListener('submit', async event => {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  await request("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({
-      username: form.get("username"),
-      password: form.get("password"),
-      scope: "admin"
-    })
-  });
-  window.location.href = "/admin.html";
+  const button = form.querySelector('button');
+  if (button.disabled) return;
+  button.disabled = true;
+  const status = document.getElementById('loginStatus');
+  status.textContent = 'Signing in…';
+  try {
+    const fields = new FormData(form);
+    const result = await fetch('/api/auth/login', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: fields.get('username'), password: fields.get('password'), scope:'admin'})
+    });
+    if (!result.ok) {
+      status.textContent = [401,403].includes(result.status) ? 'Sign-in unsuccessful. Check your admin credentials.' : 'The service is unavailable. Try again.';
+      return;
+    }
+    form.reset();
+    location.replace('/admin.html');
+  } catch {
+    status.textContent = 'The server could not be reached. Try again.';
+  } finally {
+    button.disabled = false;
+  }
 });
+
+form.querySelector('button').disabled = false;

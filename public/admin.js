@@ -1,5 +1,5 @@
 const adminState = {
-  tab: "users",
+  tab: "dashboard",
   user: null,
   chapters: [],
   users: [],
@@ -85,7 +85,7 @@ const baseConfigs = {
   },
   registrations: {
     title: "Registrations",
-    description: "Review, approve, or reject new member registrations. Documents are private.",
+    description: "Review, approve, or reject new member registrations.",
     endpoint: "/api/registrations",
     columns: ["id", "fullName", "status", "chapter", "username", "submittedAt"],
     labels: { id: "ID", fullName: "Name", status: "Status", chapter: "Chapter", username: "Username", submittedAt: "Submitted" },
@@ -403,18 +403,46 @@ function getConfig(key) {
   return config;
 }
 
+let pendingRequests = 0;
+function connectionNotice(message) {
+  const box = document.getElementById("apiNotice");
+  box.querySelector("span").textContent = message;
+  box.hidden = !message;
+}
+function signInAgain() {
+  document.querySelector(".dashboard-shell").hidden = true;
+  document.getElementById("recordModal").classList.add("hidden");
+  document.getElementById("qrModal").classList.add("hidden");
+  location.replace("/admin-login.html");
+}
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    cache: "no-store",
-    ...options
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Request failed");
+  const progress = document.getElementById("apiProgress");
+  pendingRequests++;
+  progress.hidden = false;
+  progress.textContent = options.method ? "Sending request…" : "Loading club records…";
+  try {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin", cache: "no-store", ...options
+    });
+    if (response.status === 401) {
+      signInAgain();
+      throw new Error("Your session has ended.");
+    }
+    if (!response.ok) {
+      if (response.status === 403) throw new Error("You do not have permission for this action.");
+      if (response.status >= 500) throw new Error("The server could not complete the request. Refresh before retrying.");
+      const problem = await response.json().catch(() => ({}));
+      throw new Error(typeof problem.detail === "string" ? problem.detail : "Check the entered values and try again.");
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error("Connection interrupted. Reload to check the saved state.");
+    throw error;
+  } finally {
+    pendingRequests--;
+    progress.hidden = pendingRequests === 0;
   }
-  return data;
 }
 
 function readFileBase64(file) {
@@ -438,10 +466,12 @@ function formatValue(key, field, value) {
     return value > 0 ? `+${value}` : `${value}`;
   }
   if (key === "users" && field === "role") {
-    return String(value).toUpperCase();
+    return h(String(value).toUpperCase());
   }
-  if (key === "chapters" && field === "logo") {
-    return value ? `<img src="${value}" alt="logo" class="table-thumb">` : "";
+  if (field === "logo" || field === "image") {
+    const src = imageUrl(value);
+    return src ? `<img src="${src}" alt="${field === "logo" ? "Logo" : "Image"}" class="table-thumb" loading="lazy">` : h(value);
+
   }
   if (key === "rewards" && field === "active") {
     return value ? "Yes" : "No";
@@ -450,7 +480,7 @@ function formatValue(key, field, value) {
     return value ? "Yes" : "No";
   }
   if ((key === "events" || key === "registrations" || key === "redemptions") && field === "status") {
-    return String(value).toUpperCase();
+    return h(String(value).toUpperCase());
   }
   if (key === "events" && field === "checkInEnabled") {
     return value ? "Yes" : "No";
@@ -458,59 +488,27 @@ function formatValue(key, field, value) {
   if (key === "vehicleYears" && field === "year") {
     return value;
   }
-  return value;
-}
-
-function renderSidebar() {
-  document.getElementById("sidebarNav").innerHTML = Object.keys(baseConfigs).map((key) => `
-    <button class="sidebar-link ${adminState.tab === key ? "active" : ""}" data-tab="${key}" type="button">${baseConfigs[key].title}</button>
-  `).join("");
-
-  document.querySelectorAll("[data-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      adminState.tab = button.dataset.tab;
-      adminState.editingId = null;
-      renderCurrentTab();
-    });
-  });
-}
-
-function renderStats() {
-  const stats = [
-    { label: "Users", value: adminState.items.users.length },
-    { label: "Events", value: adminState.items.events.length },
-    { label: "Registrations", value: adminState.items.registrations.length },
-    { label: "Vendors", value: adminState.items.vendors.length },
-    { label: "Rewards", value: adminState.items.rewards.length },
-    { label: "Redemptions", value: adminState.items.redemptions.length },
-    { label: "Merch", value: adminState.items.merchandise.length },
-    { label: "Chapters", value: adminState.items.chapters.length },
-    { label: "Products", value: adminState.items.products.length },
-    { label: "Orders", value: adminState.items.orders.length },
-    { label: "Official Partners", value: adminState.items.officialPartners.length },
-    { label: "Merchant Partners", value: adminState.items.merchantPartners.length }
-  ];
-
-  document.getElementById("stats").innerHTML = stats.map((item) => `
-    <article class="metric-card">
-      <div class="eyebrow">${item.label}</div>
-      <h3>${item.value}</h3>
-    </article>
-  `).join("");
+  return h(value);
 }
 
 function renderHeader() {
-  const config = getConfig(adminState.tab);
-  document.getElementById("pageEyebrow").textContent = "Dashboard";
-  document.getElementById("pageTitle").textContent = config.title;
-  document.getElementById("pageDescription").textContent = config.description;
+  const home = adminState.tab === "dashboard";
+  const config = home ? null : getConfig(adminState.tab);
+  document.querySelector(".dashboard-header").hidden = home;
+  document.getElementById("heroBanner").hidden = !home;
+  document.getElementById("stats").hidden = !home;
+  document.getElementById("tableArea").classList.toggle("module-panel", !home);
+  document.getElementById("pageTitle").textContent = home ? "Dashboard" : navLabel(adminState.tab);
+  document.getElementById("pageDescription").textContent = config?.description || "";
   document.getElementById("adminUserName").textContent = adminState.user.name;
-  document.getElementById("adminUserMeta").textContent = `@${adminState.user.username}`;
+  document.getElementById("adminUserMeta").textContent = "Administrator";
 }
 
 function renderTable() {
   const config = getConfig(adminState.tab);
   const rows = adminState.items[adminState.tab];
+  const canCreate = !["registrations", "redemptions"].includes(adminState.tab);
+  const canChange = adminState.tab !== "pointTransactions";
   const itemLabel = config.title.endsWith("s") ? config.title.slice(0, -1) : config.title;
 
   document.getElementById("tableArea").innerHTML = `
@@ -519,7 +517,7 @@ function renderTable() {
         <div class="eyebrow">${config.title}</div>
         <h3>${config.title} Table</h3>
       </div>
-      ${config.custom ? "" : `<button class="primary-button" id="newRecordButton" type="button">Add ${itemLabel}</button>`}
+      ${!canCreate ? "" : `<button class="primary-button" id="newRecordButton" type="button">Add ${itemLabel}</button>`}
     </div>
     ${rows && rows.length ? `
       <div class="table-wrap">
@@ -536,8 +534,8 @@ function renderTable() {
                     ${(config.actions || []).map((action, index) => `
                       <button class="${action.className || "ghost-button"} ${adminState.tab}-action-${index}" data-action-index="${index}" data-row-id="${row.id}" type="button">${action.label}</button>
                     `).join("")}
-                    ${config.custom ? "" : `<button class="ghost-button" data-edit="${row.id}" type="button">Edit</button>`}
-                    ${config.custom ? "" : `<button class="danger-button" data-delete="${row.id}" type="button">Delete</button>`}
+                    ${!canChange ? "" : `<button class="ghost-button" data-edit="${row.id}" type="button">Edit</button>`}
+                    ${!canChange ? "" : `<button class="danger-button" data-delete="${row.id}" type="button">Delete</button>`}
                   </div>
                 </td>
               </tr>
@@ -548,7 +546,7 @@ function renderTable() {
     ` : `<div class="empty-state">No ${config.title.toLowerCase()} yet.</div>`}
   `;
 
-  if (!config.custom) {
+  if (canCreate) {
     document.getElementById("newRecordButton").addEventListener("click", () => {
       adminState.editingId = null;
       openModal();
@@ -562,11 +560,14 @@ function renderTable() {
       const rowId = Number(button.dataset.rowId);
       const row = rows.find((r) => r.id === rowId);
       if (row && config.actions && config.actions[index]) {
+        const action = config.actions[index];
+        if (action.label !== "Show QR" && !window.confirm(`${action.label} this record?`)) return;
+        button.disabled = true;
         try {
-          await config.actions[index].handler(row);
+          await action.handler(row);
         } catch (err) {
           alert(err.message);
-        }
+        } finally { button.disabled = false; }
       }
     });
   });
@@ -581,17 +582,23 @@ function renderTable() {
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await handleDeleteRecord(button.dataset.delete);
+      button.disabled = true;
+      try { await handleDeleteRecord(button.dataset.delete); }
+      catch (error) { alert(error.message); }
+      finally { button.disabled = false; }
     });
   });
 }
 
 function openModal() {
+  document.querySelector(".dashboard-shell").inert = true;
   document.getElementById("recordModal").classList.remove("hidden");
+  document.getElementById("closeModalButton").focus();
   document.getElementById("modalBackdrop").classList.remove("hidden");
 }
 
 function closeModal() {
+  document.querySelector(".dashboard-shell").inert = false;
   document.getElementById("recordModal").classList.add("hidden");
   document.getElementById("modalBackdrop").classList.add("hidden");
 }
@@ -601,19 +608,26 @@ function openQrModal(row) {
   const backdrop = document.getElementById("modalBackdrop");
   const tokenUrl = `${window.location.origin}/?checkin=1&event=${row.id}&token=${encodeURIComponent(row.qrToken || "")}`;
   document.getElementById("qrTitle").textContent = `Check-In QR: ${row.title}`;
-  document.getElementById("qrImage").src = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(tokenUrl)}`;
+  const qr = qrcode(0, "M");
+  qr.addData(tokenUrl);
+  qr.make();
+  document.getElementById("qrImage").src = qr.createDataURL(5, 20);
   document.getElementById("qrToken").textContent = row.qrToken || "No token";
+  document.querySelector(".dashboard-shell").inert = true;
   modal.classList.remove("hidden");
+  document.getElementById("closeQrModalButton").focus();
   backdrop.classList.remove("hidden");
 }
 
 function closeQrModal() {
+  document.querySelector(".dashboard-shell").inert = false;
   document.getElementById("qrModal").classList.add("hidden");
   document.getElementById("modalBackdrop").classList.add("hidden");
 }
 
 async function handleDeleteRecord(id) {
-  const config = getConfig(adminState.tab);
+  const key = adminState.tab;
+  const config = getConfig(key);
   const itemLabel = config.title.endsWith("s") ? config.title.slice(0, -1) : config.title;
   const ok = window.confirm(`Delete this ${itemLabel.toLowerCase()}?`);
   if (!ok) {
@@ -621,11 +635,11 @@ async function handleDeleteRecord(id) {
   }
 
   await request(`${config.endpoint}/${id}`, { method: "DELETE" });
-  adminState.items[adminState.tab] = adminState.items[adminState.tab].filter((item) => item.id !== Number(id));
-  if (adminState.editingId === Number(id)) {
+  if (adminState.tab === key && adminState.editingId === Number(id)) {
       adminState.editingId = null;
       closeModal();
     }
+  await loadAdminData();
   renderCurrentTab();
 }
 
@@ -652,14 +666,13 @@ function isOptionObject(option) {
 async function serializeForm(config, formData, existing) {
   const payload = {};
   for (const field of config.fields) {
+    if (field.readonly) continue;
     if (field.type === "file") {
       const fileInput = document.getElementById(field.name);
       const file = fileInput?.files?.[0];
       if (file) {
         payload[field.name] = await readFileBase64(file);
-      } else if (existing?.[field.name]) {
-        payload[field.name] = existing[field.name];
-      } else {
+      } else if (!existing) {
         payload[field.name] = null;
       }
       continue;
@@ -668,8 +681,14 @@ async function serializeForm(config, formData, existing) {
     if (field.type === "number") {
       payload[field.name] = payload[field.name] === "" ? null : Number(payload[field.name]);
     }
-    if (field.name === "variants" && typeof payload[field.name] === "string" && payload[field.name].trim() === "") {
-      payload[field.name] = null;
+    if (field.name === "variants") {
+      const raw = String(payload.variants || "").trim();
+      const variants = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(variants) || variants.some(v => !v || typeof v !== "object" || Array.isArray(v))) {
+        throw new Error("Variants must be a JSON array of objects.");
+      }
+      if (existing && JSON.stringify(variants) === JSON.stringify(existing.variants || [])) delete payload.variants;
+      else payload.variants = variants;
     }
   }
 
@@ -702,7 +721,7 @@ function renderForm() {
           return `
             <div class="input-group">
               <label for="${field.name}">${field.label}</label>
-              <textarea id="${field.name}" name="${field.name}" rows="4" ${field.required ? "required" : ""}>${normalizeForInput(field, existing?.[field.name])}</textarea>
+              <textarea id="${field.name}" name="${field.name}" rows="4" ${field.required ? "required" : ""}>${h(normalizeForInput(field, existing?.[field.name]))}</textarea>
             </div>
           `;
         }
@@ -713,11 +732,12 @@ function renderForm() {
               <label for="${field.name}">${field.label}</label>
               <select id="${field.name}" name="${field.name}" ${field.required ? "required" : ""} ${field.readonly ? "disabled" : ""}>
                 ${field.required ? "" : `<option value=""></option>`}
+                ${field.name === "role" && existing?.role && !field.options.includes(existing.role) ? `<option selected value="${h(existing.role)}">${h(existing.role)}</option>` : ""}
                 ${field.options.map((option) => {
                   const value = isOptionObject(option) ? option.value : option;
                   const label = isOptionObject(option) ? option.label : option;
                   const selected = String(existing?.[field.name]) === String(value);
-                  return `<option value="${value}" ${selected ? "selected" : ""}>${label}</option>`;
+                  return `<option value="${h(value)}" ${selected ? "selected" : ""}>${h(label)}</option>`;
                 }).join("")}
               </select>
             </div>
@@ -726,7 +746,7 @@ function renderForm() {
 
         if (field.type === "file") {
           const preview = existing?.[field.name]
-            ? `<div class="file-preview"><img src="${existing[field.name]}" alt="${field.label}" class="preview-thumb"></div>`
+            ? `<div class="file-preview"><img src="${imageUrl(existing[field.name])}" alt="${field.label}" class="preview-thumb"></div>`
             : "";
           return `
             <div class="input-group">
@@ -740,14 +760,14 @@ function renderForm() {
         return `
           <div class="input-group">
             <label for="${field.name}">${field.label}</label>
-            <input id="${field.name}" name="${field.name}" type="${field.type}" value="${normalizeForInput(field, existing?.[field.name])}" ${field.required ? "required" : ""} ${field.readonly ? "readonly" : ""}>
+            <input id="${field.name}" name="${field.name}" type="${field.type}" value="${h(normalizeForInput(field, existing?.[field.name]))}" ${field.required ? "required" : ""} ${field.readonly ? "readonly" : ""}>
           </div>
         `;
       }).join("")}
     </div>
     <div class="toolbar">
       <button class="primary-button" type="submit">${existing ? "Save Changes" : "Create"}</button>
-      <button class="ghost-button" type="button" id="clearFormButton">${existing ? "New Record" : "Clear"}</button>
+      <button class="ghost-button" type="button" id="clearFormButton">Cancel</button>
     </div>
   `;
 
@@ -757,22 +777,38 @@ function renderForm() {
     renderForm();
   });
 
-  document.getElementById("recordForm").addEventListener("submit", async (event) => {
+  const form = document.getElementById("recordForm");
+  form.onsubmit = async (event) => {
     event.preventDefault();
-    const existing = adminState.items[adminState.tab].find((item) => item.id === adminState.editingId);
-    const payload = await serializeForm(config, new FormData(event.currentTarget), existing);
-    const method = existing ? "PUT" : "POST";
-    const url = existing ? `${config.endpoint}/${existing.id}` : config.endpoint;
-    const saved = await request(url, { method, body: JSON.stringify(payload) });
-    if (existing) {
-      adminState.items[adminState.tab] = adminState.items[adminState.tab].map((item) => item.id === existing.id ? saved : item);
-    } else {
-      adminState.items[adminState.tab] = [...adminState.items[adminState.tab], saved];
+    const submit = form.querySelector('[type="submit"]');
+    if (submit.disabled) return;
+    const key = adminState.tab;
+    const existing = adminState.items[key].find(item => item.id === adminState.editingId);
+    submit.disabled = true;
+    try {
+      const payload = await serializeForm(config, new FormData(form), existing);
+      if (["pointTransactions", "registrations", "redemptions"].includes(key)
+          && (!existing || payload.status !== existing.status)
+          && !window.confirm("Confirm this change?")) {
+        submit.disabled = false;
+        return;
+      }
+      const url = existing ? `${config.endpoint}/${existing.id}` : config.endpoint;
+      await request(url, { method: existing ? "PUT" : "POST", body: JSON.stringify(payload) });
+    } catch (error) {
+      alert(error.message);
+      submit.disabled = false;
+      return;
     }
-    adminState.editingId = null;
     closeModal();
-    renderCurrentTab();
-  });
+    adminState.editingId = null;
+    try {
+      await loadAdminData();
+      renderCurrentTab();
+    } catch (error) {
+      alert("Saved. Reload the dashboard to refresh the records.");
+    }
+  };
 }
 
 async function renderLeaderboard() {
@@ -801,18 +837,21 @@ async function renderLeaderboard() {
     <div id="leaderboardResults"></div>
   `;
 
-  document.getElementById("loadLeaderboardButton").addEventListener("click", async () => {
-    const period = document.getElementById("leaderboardPeriod").value;
-    const date = document.getElementById("leaderboardDate").value;
-    const data = await request(`/api/leaderboard?period=${period}&date=${date}`);
-    renderLeaderboardResults(data);
-  });
-
-  // Auto-load once
-  const period = document.getElementById("leaderboardPeriod").value;
-  const date = document.getElementById("leaderboardDate").value;
-  const data = await request(`/api/leaderboard?period=${period}&date=${date}`);
-  renderLeaderboardResults(data);
+  const results = document.getElementById("leaderboardResults");
+  const button = document.getElementById("loadLeaderboardButton");
+  async function loadRanking() {
+    button.disabled = true;
+    results.textContent = "Loading leaderboard…";
+    try {
+      const period = document.getElementById("leaderboardPeriod").value;
+      const date = document.getElementById("leaderboardDate").value;
+      const data = await request(`/api/leaderboard?period=${period}&date=${date}`);
+      if (results.isConnected) renderLeaderboardResults(data);
+    } catch (error) { results.textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+  button.onclick = loadRanking;
+  await loadRanking();
 }
 
 function renderOrders() {
@@ -835,11 +874,11 @@ function renderOrders() {
           <tbody>
             ${rows.map((row) => `
               <tr class="order-row" data-order-id="${row.id}">
-                <td>${row.orderNumber || row.id}</td>
-                <td>${row.memberName || "-"}</td>
-                <td>${row.productTitle || "-"}</td>
-                <td>${row.totalPrice != null ? row.totalPrice : "-"}</td>
-                <td>${String(row.status || "").toUpperCase()}</td>
+                <td>${h(row.orderNumber || row.id)}</td>
+                <td>${h(row.memberName || "-")}</td>
+                <td>${h(row.productTitle || "-")}</td>
+                <td>${h(row.totalPrice != null ? row.totalPrice : "-")}</td>
+                <td>${h(String(row.status || "").toUpperCase())}</td>
                 <td>${row.createdAt ? new Date(row.createdAt).toLocaleString("en-ID") : "-"}</td>
                 <td>
                   <div class="table-actions">
@@ -852,19 +891,15 @@ function renderOrders() {
                   <div class="dashboard-card" style="margin: 8px 0;">
                     <div class="eyebrow">Order Details</div>
                     <p><strong>ID:</strong> ${row.id}</p>
-                    <p><strong>Order Number:</strong> ${row.orderNumber || "-"}</p>
-                    <p><strong>Member:</strong> ${row.memberName || "-"}</p>
-                    <p><strong>Product:</strong> ${row.productTitle || "-"}</p>
-                    <p><strong>Total Price:</strong> ${row.totalPrice != null ? row.totalPrice : "-"}</p>
-                    <p><strong>Status:</strong> ${String(row.status || "").toUpperCase()}</p>
-                    <p><strong>Note:</strong> ${row.note || "-"}</p>
+                    <p><strong>Order Number:</strong> ${h(row.orderNumber || "-")}</p>
+                    <p><strong>Member:</strong> ${h(row.memberName || "-")}</p>
+                    <p><strong>Product:</strong> ${h(row.productTitle || "-")}</p>
+                    <p><strong>Total Price:</strong> ${h(row.totalPrice != null ? row.totalPrice : "-")}</p>
+                    <p><strong>Status:</strong> ${h(String(row.status || "").toUpperCase())}</p>
+                    <p><strong>Variant:</strong> ${h(row.variantLabel || "-")}</p>
+                    <p><strong>Quantity:</strong> ${h(row.quantity)}</p>
+                    <p><strong>Unit price:</strong> ${h(row.unitPrice ?? "-")}</p>
                     <p><strong>Created:</strong> ${row.createdAt ? new Date(row.createdAt).toLocaleString("en-ID") : "-"}</p>
-                    ${(row.items && row.items.length) ? `
-                      <div class="eyebrow" style="margin-top: 12px;">Items</div>
-                      <ul>
-                        ${row.items.map((item) => `<li>${item.title || "Item"} x${item.quantity || 1} — ${item.price != null ? item.price : "-"}</li>`).join("")}
-                      </ul>
-                    ` : ""}
                   </div>
                 </td>
               </tr>
@@ -889,6 +924,7 @@ function renderOrders() {
       const id = Number(button.dataset.orderId);
       const status = window.prompt("New status (pending/paid/processing/shipped/completed/cancelled/refunded):");
       if (!status) return;
+      if (!window.confirm(`Change this order to ${status}?`)) return;
       const note = window.prompt("Optional note:") || "";
       try {
         await request(`${config.endpoint}/${id}/status`, {
@@ -906,7 +942,9 @@ function renderOrders() {
 
 function renderLeaderboardResults(data) {
   const entries = data.entries || [];
-  document.getElementById("leaderboardResults").innerHTML = entries.length ? `
+  const results = document.getElementById("leaderboardResults");
+  if (!results) return;
+  results.innerHTML = entries.length ? `
     <div class="table-wrap">
       <table>
         <thead>
@@ -916,8 +954,8 @@ function renderLeaderboardResults(data) {
           ${entries.map((entry) => `
             <tr class="${entry.rank <= 3 ? "top-rank" : ""}">
               <td><strong>#${entry.rank}</strong></td>
-              <td>${entry.name || "-"}<br><span class="muted">${entry.memberNumber || ""}</span></td>
-              <td>${entry.chapter || "-"}</td>
+              <td>${h(entry.name || "-")}<br><span class="muted">${h(entry.memberNumber || "")}</span></td>
+              <td>${h(entry.chapter || "-")}</td>
               <td>${entry.points}</td>
             </tr>
           `).join("")}
@@ -928,16 +966,19 @@ function renderLeaderboardResults(data) {
 }
 
 function renderCurrentTab() {
-  renderSidebar();
+  buildNav();
   renderHeader();
-  renderStats();
+  if (adminState.tab === "dashboard") {
+    renderClubTotals();
+    renderOverview();
+    return;
+  }
   const config = getConfig(adminState.tab);
   if (config.custom && typeof config.render === "function") {
     document.getElementById("tableArea").innerHTML = "";
     config.render();
   } else {
     renderTable();
-    renderForm();
   }
 }
 
@@ -945,46 +986,31 @@ async function loadAdminData() {
   const keys = Object.keys(baseConfigs).filter((k) => !baseConfigs[k].custom || k === "orders");
   const results = await Promise.all(keys.map((key) => request(baseConfigs[key].endpoint)));
   keys.forEach((key, index) => {
-    adminState.items[key] = results[index];
+    // The legacy list response includes a password. Existing credentials never
+    // belong in an edit form. A blank edit keeps the user's password intact.
+    adminState.items[key] = key === "users"
+      ? results[index].map(({ password, ...user }) => user)
+      : results[index];
   });
-  adminState.chapters = await request("/api/chapters");
-  adminState.users = await request("/api/users");
+  adminState.chapters = adminState.items.chapters;
+  adminState.users = adminState.items.users;
 }
 
 async function logoutAdmin() {
   try {
     await request("/api/auth/logout", { method: "POST" });
-  } catch {
-    // Ignore logout failures.
+    signInAgain();
+  } catch (error) {
+    connectionNotice("Sign-out was not confirmed. Retry when the service is reachable.");
   }
-  window.location.href = "/admin-login.html";
 }
-
 async function bootAdmin() {
-  try {
-    const me = await request("/api/auth/me");
-    adminState.user = me.user;
-    if (adminState.user.role !== "admin") {
-      window.location.href = "/admin-login.html";
-      return;
-    }
-  } catch {
-    window.location.href = "/admin-login.html";
-    return;
-  }
-
+  const me = await request("/api/auth/me");
+  if (me.user?.role !== "admin") { signInAgain(); return; }
+  adminState.user = me.user;
   await loadAdminData();
+  bindDashboardNavigation();
   renderCurrentTab();
-
-  document.getElementById("resetDataButton").addEventListener("click", async () => {
-    await request("/api/reset", { method: "POST" });
-    adminState.editingId = null;
-    closeModal();
-    closeQrModal();
-    await loadAdminData();
-    renderCurrentTab();
-  });
-
   document.getElementById("adminLogoutButton").addEventListener("click", logoutAdmin);
   document.getElementById("closeModalButton").addEventListener("click", closeModal);
   document.getElementById("closeQrModalButton").addEventListener("click", closeQrModal);
@@ -994,7 +1020,6 @@ async function bootAdmin() {
   });
 }
 
-bootAdmin().catch((error) => {
-  alert(error.message);
-  window.location.href = "/admin-login.html";
-});
+document.getElementById("reloadRecords").onclick = () => location.reload();
+addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
+bootAdmin().catch(error => connectionNotice(error.message));
