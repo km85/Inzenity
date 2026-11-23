@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import uvicorn
+from local_tls import tls_options
 from isolated import isolated
 
 def main():
@@ -13,8 +14,8 @@ def main():
         template = (verification/'browser-check.template.html').read_text()
         check = template.replace('FIXTURE_SECRET', json.dumps(env.creds['admin']))
         (env.root/'public/index.html').write_text(check)
-        print('Open http://127.0.0.1:4173/ and select Run browser checks.', flush=True)
-        uvicorn.run(env.app, host='127.0.0.1', port=4173, log_level='critical', access_log=False)
+        print('Open https://127.0.0.1:4173/ and select Run browser checks.', flush=True)
+        uvicorn.run(env.app, host='127.0.0.1', port=4173, log_level='critical', access_log=False, **tls_options(env.root))
 
 if __name__ == '__main__':
     main()

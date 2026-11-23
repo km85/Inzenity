@@ -92,7 +92,7 @@ def test_merchant_partner_lifecycle(client, admin_token):
     assert any(m["id"] == mid for m in r.json())
 
     # merchant user can login
-    r = client.post("/api/auth/login", json={"username": "merchant1", "password": test_password, "scope": "merchant"})
+    r = client.post("/api/auth/login", json={"username": "merchant1", "password": test_password, "scope": "merchant", "tokenAuth": True})
     assert r.status_code == 200
     merchant_token = r.json()["token"]
 
@@ -178,10 +178,13 @@ def test_member_order_flow(client, admin_token, member_token):
 
     # upload payment proof
     r = client.post(f"/api/orders/{order['id']}/payment", json={
-        "paymentProofImage": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+        "paymentProofImage": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC",
     }, headers=h(member_token))
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "paid"
+    assert r.json()["status"] == "payment_submitted"
+    assert r.json()["pointsEarned"] == 0
+    r = client.put(f"/api/orders/{order['id']}/status", json={"status": "paid", "paymentReference": "SYNTHETIC-1"}, headers=h(admin_token))
+    assert r.status_code == 200 and r.json()["status"] == "paid"
     assert r.json()["pointsEarned"] == 50
 
     # member balance restored + points earned
@@ -233,7 +236,7 @@ def test_merchant_rbac_isolation(client, admin_token):
     r = client.post("/api/merchant-partners", json={"name": "Merchant B", "status": "active", "ownerUserId": uid_b}, headers=h(admin_token))
     mid_b = r.json()["id"]
 
-    token_a = client.post("/api/auth/login", json={"username": "merch_a", "password": test_password, "scope": "merchant"}).json()["token"]
+    token_a = client.post("/api/auth/login", json={"username": "merch_a", "password": test_password, "scope": "merchant", "tokenAuth": True}).json()["token"]
 
     r = client.get("/api/products", headers=h(token_a))
     assert r.status_code == 200

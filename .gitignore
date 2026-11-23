@@ -41,3 +41,5 @@ Thumbs.db
 google-services.json
 .gradle/
 .pytest_cache/
+
+/private-uploads/

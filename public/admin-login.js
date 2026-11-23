@@ -7,6 +7,7 @@ form.addEventListener('submit', async event => {
   const status = document.getElementById('loginStatus');
   status.textContent = 'Signing in…';
   try {
+    if (location.protocol !== "https:") throw new Error("HTTPS required");
     const fields = new FormData(form);
     const result = await fetch('/api/auth/login', {
       method: 'POST', credentials: 'same-origin', cache: 'no-store',

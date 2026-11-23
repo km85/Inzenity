@@ -13,7 +13,7 @@ async function login(){await open();if(!$(".v2-pass")){await until(()=>$("#login
 async function go(hash,selector){const w=frame.contentWindow;if(w.location.hash!=="#"+hash){await new Promise(resolve=>{w.addEventListener("hashchange",resolve,{once:true});w.location.hash=hash})}await until(()=>{const n=$(selector);return n&&n.getClientRects().length},"Route "+hash)}
 function set(s,v){$(s).value=v}
 const msg=() => $(".v2-tools [role=status]")?.textContent || "";
-async function api(path){const w=frame.contentWindow;return (await w.fetch("/api/"+path,{headers:{"X-API-Token":w.localStorage.getItem("api_token")},credentials:"omit"})).json()}
+async function api(path){const w=frame.contentWindow;return (await w.fetch("/api/"+path,{credentials:"same-origin"})).json()}
 async function serverUntil(f,msg){for(let i=0;i<100;i++){if(await f())return;await sleep(70)}throw Error(msg)}
 document.querySelector("#preview").onclick=async()=>{try{await login();record("Preview ready")}catch(e){record(e.message)}};
 document.querySelector("#run").onclick=async event=>{

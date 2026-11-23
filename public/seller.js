@@ -1,22 +1,25 @@
 (() => {
-  const API = window.API_BASE || "http://localhost:8001";
-  let token = localStorage.getItem("sellerToken");
+  const API = "";
+  localStorage.removeItem("sellerToken");
+  function escapeSeller(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
   let merchant = null;
 
   const $ = (id) => document.getElementById(id);
   const byQS = (q) => document.querySelectorAll(q);
 
   async function api(path, method = "GET", body) {
+    if (location.protocol !== "https:") throw new Error("HTTPS required");
     const opts = {
       method,
-      headers: { "x-api-token": token || "", "Content-Type": "application/json" },
-      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
     };
     if (body) opts.body = JSON.stringify(body);
     const r = await fetch(API + path, opts);
     if (r.status === 401 || r.status === 403) {
-      logout();
-      return;
+      throw new Error("Access denied");
     }
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     return r.status === 204 ? null : r.json();
@@ -26,16 +29,14 @@
     const u = $("loginUser").value;
     const p = $("loginPass").value;
     try {
+      if (location.protocol !== "https:") throw new Error("HTTPS required");
       const res = await fetch(API + "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        credentials: "same-origin",
         body: JSON.stringify({ username: u, password: p, scope: "merchant" }),
       });
       if (!res.ok) throw new Error("Invalid credentials");
-      const data = await res.json();
-      token = data.token;
-      localStorage.setItem("sellerToken", token);
       merchant = await api("/api/merchant/me");
       showApp();
     } catch (e) {
@@ -44,7 +45,7 @@
   }
 
   function logout() {
-    token = null;
+
     localStorage.removeItem("sellerToken");
     merchant = null;
     $("appScreen").style.display = "none";
@@ -52,7 +53,7 @@
   }
 
   async function init() {
-    if (!token) return;
+
     try {
       merchant = await api("/api/merchant/me");
       showApp();
@@ -90,14 +91,14 @@
     for (const p of products) {
       const stock = (p.variants || []).reduce((a, v) => a + (v.stock || 0), 0);
       html += `<tr>
-        <td>${p.id}</td>
-        <td>${p.title}</td>
-        <td>${p.price}</td>
-        <td>${stock}</td>
+        <td>${escapeSeller(p.id)}</td>
+        <td>${escapeSeller(p.title)}</td>
+        <td>${escapeSeller(p.price)}</td>
+        <td>${escapeSeller(stock)}</td>
         <td>${p.active ? "Yes" : "No"}</td>
         <td>
-          <button class="edit-product" data-id="${p.id}">Edit</button>
-          <button class="toggle-product" data-id="${p.id}" data-active="${p.active ? 1 : 0}">${p.active ? "Deactivate" : "Activate"}</button>
+          <button class="edit-product" data-id="${escapeSeller(p.id)}">Edit</button>
+          <button class="toggle-product" data-id="${escapeSeller(p.id)}" data-active="${p.active ? 1 : 0}">${p.active ? "Deactivate" : "Activate"}</button>
         </td>
       </tr>`;
     }
@@ -123,15 +124,15 @@
     $("mainArea").innerHTML = `
       <h2>${product ? "Edit" : "New"} Product</h2>
       <form class="seller-form" id="productForm">
-        <label>Title</label><input name="title" value="${product ? product.title : ""}" required>
-        <label>Description</label><textarea name="description">${product ? product.description || "" : ""}</textarea>
-        <label>Price (number string)</label><input name="price" value="${product ? product.price : ""}" required>
-        <label>Points earned</label><input name="points" type="number" value="${product ? product.points : 0}">
-        <label>Category</label><input name="category" value="${product ? product.category || "" : ""}">
+        <label>Title</label><input name="title" value="${product ? escapeSeller(product.title) : ""}" required>
+        <label>Description</label><textarea name="description">${product ? escapeSeller(product.description || "") : ""}</textarea>
+        <label>Price (number string)</label><input name="price" value="${product ? escapeSeller(product.price) : ""}" required>
+        <label>Points earned</label><input name="points" type="number" value="${product ? escapeSeller(product.points) : 0}">
+        <label>Category</label><input name="category" value="${product ? escapeSeller(product.category || "") : ""}">
         <label>Image (file)</label><input name="image" type="file" accept="image/*">
         <label>Allow Pre-order</label><select name="allowPreorder"><option value="false">No</option><option value="true" ${product && product.allowPreorder ? "selected" : ""}>Yes</option></select>
         <label>Active</label><select name="active"><option value="true">Yes</option><option value="false" ${product && !product.active ? "selected" : ""}>No</option></select>
-        <label>Variants JSON</label><textarea name="variants" rows="6">${variantsText}</textarea>
+        <label>Variants JSON</label><textarea name="variants" rows="6">${escapeSeller(variantsText)}</textarea>
         <div class="seller-actions">
           <button class="primary-button" type="submit">Save</button>
           <button class="ghost-button" type="button" id="cancelProduct">Cancel</button>
@@ -170,12 +171,12 @@
     let html = `<h2>Orders</h2><table class="seller-table"><thead><tr><th>Order #</th><th>Product</th><th>Qty</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>`;
     for (const o of orders) {
       html += `<tr>
-        <td>${o.orderNumber}</td>
-        <td>${o.productTitle}</td>
-        <td>${o.quantity}</td>
-        <td>${o.totalPrice}</td>
-        <td><span class="badge">${o.status}</span></td>
-        <td><button class="update-status" data-id="${o.id}">Update Status</button></td>
+        <td>${escapeSeller(o.orderNumber)}</td>
+        <td>${escapeSeller(o.productTitle)}</td>
+        <td>${escapeSeller(o.quantity)}</td>
+        <td>${escapeSeller(o.totalPrice)}</td>
+        <td><span class="badge">${escapeSeller(o.status)}</span></td>
+        <td><button class="update-status" data-id="${escapeSeller(o.id)}">Update Status</button></td>
       </tr>`;
     }
     html += `</tbody></table>`;
@@ -185,18 +186,25 @@
 
   async function statusForm(orderId) {
     const order = await api(`/api/orders/${orderId}`);
-    const statuses = ["pending", "paid", "processing", "shipped", "completed", "cancelled", "refunded"];
+    const statuses = [order.status, ...({
+      pending: ["cancelled"], payment_submitted: ["paid", "cancelled"],
+      paid: ["processing", "refunded"], processing: ["shipped", "refunded"],
+      shipped: ["completed"]
+    }[order.status] || [])];
     $("mainArea").innerHTML = `
-      <h2>Update Order ${order.orderNumber}</h2>
+      <h2>Update Order ${escapeSeller(order.orderNumber)}</h2>
       <div class="seller-card">
-        <p><strong>Product:</strong> ${order.productTitle}</p>
-        <p><strong>Quantity:</strong> ${order.quantity}</p>
-        <p><strong>Total:</strong> ${order.totalPrice}</p>
-        <p><strong>Current Status:</strong> ${order.status}</p>
+        <p><strong>Product:</strong> ${escapeSeller(order.productTitle)}</p>
+        <p><strong>Quantity:</strong> ${escapeSeller(order.quantity)}</p>
+        <p><strong>Total:</strong> ${escapeSeller(order.totalPrice)}</p>
+        <p><strong>Current Status:</strong> ${escapeSeller(order.status)}</p>
       </div>
       <form class="seller-form" id="statusForm">
         <label>New Status</label>
-        <select name="status">${statuses.map((s) => `<option value="${s}" ${s === order.status ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select name="status">${statuses.map((s) => `<option value="${escapeSeller(s)}" ${s === order.status ? "selected" : ""}>${escapeSeller(s)}</option>`).join("")}</select>
+        ${order.paymentProofImage && /^\/uploads\/payments\/[a-zA-Z0-9_.-]+$/.test(order.paymentProofImage) ? `<a href="${escapeSeller(order.paymentProofImage)}" target="_blank" rel="noreferrer">View payment proof</a>` : ""}
+        <label>Settlement reference (verify against bank before marking paid)</label><input name="paymentReference" maxlength="96">
+        ${!order.variantId ? '<label>Inventory variant ID for preorder fulfillment</label><input type="number" min="1" name="variantId">' : ""}
         <label>Note</label><textarea name="note"></textarea>
         <div class="seller-actions">
           <button class="primary-button" type="submit">Update</button>
@@ -207,8 +215,12 @@
     $("statusForm").onsubmit = async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      await api(`/api/orders/${orderId}/status`, "PUT", { status: fd.get("status"), note: fd.get("note") });
-      renderOrders();
+      try {
+        await api(`/api/orders/${orderId}/status`, "PUT", {
+          status: fd.get("status"), note: fd.get("note"), paymentReference: fd.get("paymentReference"), variantId: fd.get("variantId")
+        });
+        renderOrders();
+      } catch (err) { alert(err.message); }
     };
   }
 
@@ -219,7 +231,10 @@
   });
 
   $("loginBtn").onclick = login;
-  $("logoutBtn").onclick = logout;
+  $("logoutBtn").onclick = async () => {
+    try { await api("/api/auth/logout", "POST"); logout(); }
+    catch (err) { alert(err.message); }
+  };
 
   init();
 })();

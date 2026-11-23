@@ -421,6 +421,7 @@ async function request(path, options = {}) {
   progress.hidden = false;
   progress.textContent = options.method ? "Sending request…" : "Loading club records…";
   try {
+    if (location.protocol !== "https:") throw new Error("HTTPS required");
     const response = await fetch(path, {
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin", cache: "no-store", ...options
@@ -463,7 +464,7 @@ function formatValue(key, field, value) {
     return new Date(value).toLocaleString("en-ID");
   }
   if (field === "amount") {
-    return value > 0 ? `+${value}` : `${value}`;
+    return h(value > 0 ? `+${value}` : value);
   }
   if (key === "users" && field === "role") {
     return h(String(value).toUpperCase());
@@ -486,7 +487,7 @@ function formatValue(key, field, value) {
     return value ? "Yes" : "No";
   }
   if (key === "vehicleYears" && field === "year") {
-    return value;
+    return h(value);
   }
   return h(value);
 }
@@ -897,6 +898,7 @@ function renderOrders() {
                     <p><strong>Total Price:</strong> ${h(row.totalPrice != null ? row.totalPrice : "-")}</p>
                     <p><strong>Status:</strong> ${h(String(row.status || "").toUpperCase())}</p>
                     <p><strong>Variant:</strong> ${h(row.variantLabel || "-")}</p>
+                    ${/^\/uploads\/payments\/[a-zA-Z0-9_.-]+$/.test(row.paymentProofImage || "") ? `<a href="${h(row.paymentProofImage)}" target="_blank" rel="noreferrer">View payment proof</a>` : ""}
                     <p><strong>Quantity:</strong> ${h(row.quantity)}</p>
                     <p><strong>Unit price:</strong> ${h(row.unitPrice ?? "-")}</p>
                     <p><strong>Created:</strong> ${row.createdAt ? new Date(row.createdAt).toLocaleString("en-ID") : "-"}</p>
@@ -925,11 +927,15 @@ function renderOrders() {
       const status = window.prompt("New status (pending/paid/processing/shipped/completed/cancelled/refunded):");
       if (!status) return;
       if (!window.confirm(`Change this order to ${status}?`)) return;
+      const paymentReference = status === "paid" ? window.prompt("Verify the settlement with your bank and enter its unique reference:") : undefined;
+      if (status === "paid" && !paymentReference) return;
+      const order = rows.find(row => Number(row.id) === id);
+      const variantId = status === "processing" && !order?.variantId ? window.prompt("Inventory variant ID for this preorder:") : undefined;
       const note = window.prompt("Optional note:") || "";
       try {
         await request(`${config.endpoint}/${id}/status`, {
           method: "PUT",
-          body: JSON.stringify({ status, note })
+          body: JSON.stringify({ status, note, paymentReference, variantId })
         });
         await loadAdminData();
         renderCurrentTab();
@@ -953,10 +959,10 @@ function renderLeaderboardResults(data) {
         <tbody>
           ${entries.map((entry) => `
             <tr class="${entry.rank <= 3 ? "top-rank" : ""}">
-              <td><strong>#${entry.rank}</strong></td>
+              <td><strong>#${h(entry.rank)}</strong></td>
               <td>${h(entry.name || "-")}<br><span class="muted">${h(entry.memberNumber || "")}</span></td>
               <td>${h(entry.chapter || "-")}</td>
-              <td>${entry.points}</td>
+              <td>${h(entry.points)}</td>
             </tr>
           `).join("")}
         </tbody>

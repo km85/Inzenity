@@ -32,23 +32,23 @@ MEMBER_CREDS = {"username": "qa-member", "password": secrets.token_urlsafe(24), 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """Use a fresh schema and disposable local accounts for each test."""
-    monkeypatch.setattr(main, "public_dir", str(tmp_path))
-    monkeypatch.setattr(main, "uploads_dir", str(tmp_path / "uploads" / "chapters"))
+    monkeypatch.setenv("INZENITY_PRIVATE_DIR", str(tmp_path / "private"))
+    monkeypatch.setattr(main, "public_dir", str(tmp_path / "public"))
     Base.metadata.drop_all(bind=test_engine)
     Base.metadata.create_all(bind=test_engine)
     seed_reference_data()
     with TestSessionLocal() as db:
         for user_id, credentials in enumerate((MEMBER_CREDS, ADMIN_CREDS), 1):
             db.add(main.User(id=user_id, username=credentials["username"],
-                             password=credentials["password"], role=credentials["scope"],
+                             password=main.hardening.hash_password(credentials["password"]), role=credentials["scope"],
                              name=credentials["username"], phone="", city="Test"))
         db.commit()
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="https://testserver") as test_client:
         yield test_client
 
 
 def login_as(client: TestClient, creds: dict) -> str:
-    r = client.post("/api/auth/login", json=creds)
+    r = client.post("/api/auth/login", json={**creds, "tokenAuth": True})
     assert r.status_code == 200, r.text
     return r.json()["token"]
 

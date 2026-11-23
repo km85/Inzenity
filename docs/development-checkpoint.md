@@ -13,7 +13,7 @@ The source seed contains empty collections. Tests create disposable users and te
 
 ## APK comparison
 
-The comparison candidate has SHA-256 `60ea59783ec6daf9f79c4ecea237d0a7225fa7c28146f040b95874003088955f`. Its Capacitor config and all 11 authored member web files match this branch byte for byte. Capacitor supplies the remaining two empty Cordova shims during Android sync. Both web entry points contain the Android 11 DOM fixes for login reset, merchant error display and member tool navigation. Native rebuild equivalence is still open.
+The comparison candidate has SHA-256 `60ea59783ec6daf9f79c4ecea237d0a7225fa7c28146f040b95874003088955f`. Its Capacitor config and 11 authored member web files matched commit `1af5e26`. Phase 4A updates the source after that comparison. Capacitor supplies the remaining two empty Cordova shims during Android sync. Both web entry points contain the Android 11 DOM fixes for login reset, merchant error display and member tool navigation. Native rebuild equivalence is still open.
 
 ## Source checks
 

@@ -14,7 +14,7 @@ def rig():
         yield env
 
 def client(env,role):
-    c=TestClient(env.app,raise_server_exceptions=False)
+    c=TestClient(env.app,base_url="https://testserver",raise_server_exceptions=False)
     if role:
         scope='admin' if role=='admin' else 'member' if role=='member' else 'merchant'
         response=c.post('/api/auth/login',json={'username':'qa-'+role,'password':env.creds[role],'scope':scope})
@@ -135,6 +135,8 @@ def test_order_status_and_persisted_stock(rig):
     product=data(admin,'POST','products',dict(title='QA goods',price='5000',active=True,variants=[dict(label='M',stock=5)]))
     variant=product['variants'][0]['id']
     order=data(member,'POST','orders',dict(productId=product['id'],variantId=variant,quantity=1))
+    data(member,'POST',f"orders/{order['id']}/payment",dict(paymentProofImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'))
+    data(admin,'PUT',f"orders/{order['id']}/status",dict(status='paid',paymentReference='SYNTHETIC-1'))
     for state in ('processing','processing','shipped','completed'):
         data(admin,'PUT',f"orders/{order['id']}/status",dict(status=state,note='QA'))
     assert data(admin,'GET','orders')[0]['status']=='completed'
@@ -161,14 +163,15 @@ def test_registration_attachment_survives_unrelated_edit(rig):
     reg=data(c,'POST','register',dict(fullName='Test attachment',username='qa-attachment',password=secrets.token_urlsafe(20)))
     path=f"registrations/{reg['id']}"
     # Generated 1×1 image, unrelated to any person or document.
-    pixel='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xds8AAAAASUVORK5CYII='
+    pixel='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
     data(c,'PUT',path,dict(stnkImage=pixel,paymentProofImage=pixel))
     saved=data(c,'GET',path)
     data(c,'PUT',path,dict(fullName='Updated test attachment'))
     after=data(c,'GET',path)
     for field in ('stnkImage','paymentProofImage'):
         assert after[field]==saved[field] and after[field]
-        assert (rig.root/'public'/after[field].lstrip('/')).is_file()
+        assert c.get(after[field]).status_code == 200
+        assert not (rig.root/'public'/after[field].lstrip('/')).exists()
 
 def test_reject_pending_redemption_keeps_balance_and_stock(rig):
     admin=client(rig,'admin')

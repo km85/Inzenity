@@ -13,7 +13,7 @@ def rig():
 
 def test_member_boundary_logout(rig):
     env,_,m,a=rig
-    guest=TestClient(env.app)
+    guest=TestClient(env.app, base_url="https://testserver")
     assert guest.get('/api/profile').status_code==401
     assert m.get('/api/users').status_code==403
     assert request(m,'GET','auth/me')['user']['role']=='member'
@@ -49,7 +49,7 @@ def test_rsvp_checkin_points_and_attachments(rig):
     assert request(m,'GET','me/points')['balance']==55
     check=request(m,'GET','me/check-ins')[0]
     assert check['eventId']==eid
-    image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKuoAAAAASUVORK5CYII='
+    image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
     request(m,'POST',f'check-ins/{check["id"]}/photos',{'photos':[image]})
     assert request(m,'GET','me/check-ins')[0]['photos']
     request(m,'POST','redemptions',{'rewardId':request(m,'GET','rewards')[0]['id']})
@@ -61,6 +61,8 @@ def test_marketplace_and_inventory_patch(rig):
     assert goods[0]['title']=='Garage kit'
     product=request(m,'GET','public/products?official=true')[0]; variant=product['variants'][0]
     order=request(m,'POST','orders',dict(productId=product['id'],variantId=variant['id'],quantity=1,recipientName='Synthetic',address='Test',phone='000000'))
+    request(m,'POST',f"orders/{order['id']}/payment",dict(paymentProofImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'))
+    request(a,'PUT',f"orders/{order['id']}/status",dict(status='paid',paymentReference='SYNTHETIC-1'))
     for status in ('processing','processing','shipped','completed'):
         request(a,'PUT',f'orders/{order["id"]}/status',dict(status=status))
     assert request(m,'GET','me/orders')[0]['status']=='completed'

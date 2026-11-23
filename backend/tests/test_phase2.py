@@ -111,7 +111,7 @@ def test_registration_approval_flow(client, admin_token):
         "scope": "member",
     })
     assert r.status_code == 200
-    assert "token" in r.json()
+    assert "token" not in r.json() and r.cookies.get("zenix_session")
 
 
 def test_member_cannot_access_admin_endpoints(client, member_token):

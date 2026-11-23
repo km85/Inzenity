@@ -9,8 +9,8 @@ def request(c, method, path, body=None):
     return response.json()
 
 def client(env,role):
-    c=TestClient(env.app)
-    result=request(c,'POST','auth/login',dict(scope=role,username='qa-'+role,password=env.creds[role]))
+    c=TestClient(env.app, base_url="https://testserver")
+    result=request(c,'POST','auth/login',dict(scope=role,tokenAuth=True,username='qa-'+role,password=env.creds[role]))
     c.cookies.clear()
     c.headers['X-API-Token']=result['token']
     return c

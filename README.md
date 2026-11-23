@@ -1,78 +1,11 @@
-# Innova Zenix Community App MVP
+# INZENITY
 
-Lightweight local MVP for an Innova Zenix community app with a mobile-first member experience and a simple admin dashboard.
+The public club website lives in `website/`. FastAPI serves the member website, admin dashboard and seller portal from `public/`. Capacitor packages the member client from `member-www/`.
 
-Current checkpoint and validation instructions: [Phase 3 development checkpoint](docs/development-checkpoint.md)
+## Local development
 
-## Legacy PowerShell MVP stack
+Install Python 3.11 or later and the backend dependencies with `python -m pip install -r backend/requirements.txt`. On Windows, set `INZENITY_TLS_CERT` and `INZENITY_TLS_KEY` to files for your trusted local HTTPS certificate, then run `.\start.ps1`. The launcher uses FastAPI on loopback port 8080. Open `https://localhost:8080/` for members or `https://localhost:8080/admin-login.html` for administrators.
 
-This project uses plain HTML, CSS, JavaScript, and a small PowerShell TCP-based local web server. It stays dependency-free and is easy to run on a Windows machine with PowerShell.
+The checked-in seed is empty. Tests create disposable accounts in temporary databases. Keep operational SQLite files, certificates and uploads outside the checkout. The legacy PowerShell JSON database is retired.
 
-## Features
-
-- Username and password login for members
-- Username and password login for admins
-- Events list and event detail
-- RSVP with Going / Maybe / Not Going
-- Announcements list
-- Vendor directory with WhatsApp links
-- Admin dashboard for users management
-- Admin CRUD for events
-- Admin CRUD for announcements
-- Admin CRUD for vendors
-- Seeded sample data with one-click reset
-
-## Project Structure
-
-- `server.ps1`: local HTTP server and JSON API
-- `start.ps1`: convenience launcher
-- `data/seed.json`: seed data
-- `data/db.json`: local working data store, created on first run
-- `public/index.html`: member app
-- `public/admin.html`: admin dashboard
-- `public/admin-login.html`: admin login page
-- `public/app.js`: member app logic
-- `public/admin.js`: admin logic
-- `public/admin-login.js`: admin login logic
-- `public/styles.css`: shared styles
-
-## Local Setup
-
-Requirements:
-
-- Windows PowerShell available in PATH
-
-Open PowerShell in this folder:
-
-```powershell
-cd path\to\Inzenity
-```
-
-Reset the working data to the demo seed if needed:
-
-```powershell
-Copy-Item .\data\seed.json .\data\db.json -Force
-```
-
-Start the server:
-
-```powershell
-.\start.ps1
-```
-
-Open these URLs in a browser:
-
-- Member app: `http://localhost:8080/`
-- Admin dashboard: `http://localhost:8080/admin`
-
-Stop the server with `Ctrl+C` in the PowerShell window running it.
-
-## Local accounts
-
-The development checkpoint contains an empty seed. Automated tests create disposable accounts in isolated databases. Keep member records and credentials outside Git.
-
-## Notes
-
-- Data is stored locally in `data/db.json`.
-- Use the `Reset Seed Data` button in admin to restore the original sample content.
-- This MVP intentionally excludes payment, chat, marketplace features, car profiles, and analytics.
+[Security migration and verification](docs/security-hardening.md) · [Android validation checkpoint](docs/development-checkpoint.md)

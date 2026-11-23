@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import expect, sync_playwright
 import pytest
 import uvicorn
+from local_tls import tls_options
 
 from isolated import isolated
 
@@ -23,8 +24,8 @@ def server():
         with contextlib.closing(socket.socket()) as sock:
             sock.bind(('127.0.0.1', 0))
             sock.listen(128)
-            base = f'http://127.0.0.1:{sock.getsockname()[1]}'
-            app = uvicorn.Server(uvicorn.Config(env.app, log_level='critical', access_log=False))
+            base = f'https://127.0.0.1:{sock.getsockname()[1]}'
+            app = uvicorn.Server(uvicorn.Config(env.app, **tls_options(env.root), log_level='critical', access_log=False))
             worker = threading.Thread(target=app.run, kwargs={'sockets':[sock]}, daemon=True)
             worker.start()
             try:
@@ -40,7 +41,7 @@ def server():
 @pytest.fixture(scope='module')
 def browser():
     with sync_playwright() as pw:
-        b = pw.chromium.launch(executable_path=shutil.which('chromium'), args=['--no-sandbox'])
+        b = pw.chromium.launch(executable_path=shutil.which('google-chrome') or shutil.which('chromium'), args=['--no-sandbox'])
         yield b
         b.close()
 
@@ -54,7 +55,7 @@ def login(page, base, env):
 @pytest.fixture
 def ui(browser, server):
     base, env = server
-    context = browser.new_context(viewport={'width':1440,'height':900})
+    context = browser.new_context(ignore_https_errors=True, viewport={'width':1440,'height':900})
     # This suite permits loopback network traffic exclusively.
     context.route('**/*', lambda route: route.continue_() if urlparse(route.request.url).hostname == '127.0.0.1' else route.abort())
     page = context.new_page()

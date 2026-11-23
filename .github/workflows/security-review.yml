@@ -1,0 +1,31 @@
+name: Security regressions
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.head_ref == 'dev/inzenity-v2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/inzenity-venv"
+          echo "$RUNNER_TEMP/inzenity-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/inzenity-venv/bin/pip" install -r verification/requirements.txt
+      - name: Run Python and browser regressions on synthetic records
+        env:
+          INZENITY_REVIEW_CHECKOUT: ${{ github.workspace }}
+          PYTHONPATH: backend:verification
+        run: python -m pytest -q backend/tests verification
+      - name: Run packaged member source checks
+        env:
+          INZENITY_REVIEW_CHECKOUT: ${{ github.workspace }}
+        run: |
+          node verification/dom-regression.cjs member-www
+          node verification/test-config.cjs

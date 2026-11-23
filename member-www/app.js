@@ -56,14 +56,15 @@ function applyStaticTranslations() {
 
 async function api(path, options = {}) {
   const base = memberApiOrigin();
-  const token = localStorage.getItem("api_token");
+  if (!base && location.protocol !== "https:") throw new Error("HTTPS required");
+  const token = base ? sessionStorage.getItem("api_token") : null;
   const headers = {"Content-Type": "application/json", ...options.headers};
   if (token) headers["X-API-Token"] = token;
   changeProgress(1);
   try {
-    const response = await fetch(base + path, {...options, headers, credentials: "omit", cache: "no-store"});
-    if (response.status === 401 && token === localStorage.getItem("api_token") && token) {
-      localStorage.removeItem("api_token");
+    const response = await fetch(base + path, {...options, headers, credentials: base ? "omit" : "same-origin", cache: "no-store"});
+    if (response.status === 401 && (!base || token === sessionStorage.getItem("api_token")) && state.user) {
+      sessionStorage.removeItem("api_token");
       showLogin();
     }
     const data = await response.json().catch(() => ({}));
@@ -336,6 +337,14 @@ function getMerchantPartners() {
   }));
 }
 
+function openClubLink(value) {
+  let url;
+  try { url = new URL(value, location.href); } catch { return; }
+  if (url.protocol === "https:" && !url.username && !url.password) {
+    window.open(url.href, "_blank", "noopener,noreferrer");
+  }
+}
+
 function renderHome() {
   const slides = getHeroSlides();
   const activeIndex = slides.length ? state.heroIndex % slides.length : 0;
@@ -348,16 +357,16 @@ function renderHome() {
     ${memberOverview()}
     <section class="home-hero-card">
       ${activeSlide ? `
-        <div class="hero-banner ${activeSlide.coverClass}" id="heroBanner" role="button" tabindex="0">
+        <div class="hero-banner ${escapeMember(activeSlide.coverClass)}" id="heroBanner" role="button" tabindex="0">
           <div class="hero-banner-copy">
-            <span class="hero-badge">${activeSlide.subtitle}</span>
-            <h2>${activeSlide.title}</h2>
-            <p>${activeSlide.body}</p>
-            <span class="hero-support">${activeSlide.tag}</span>
+            <span class="hero-badge">${escapeMember(activeSlide.subtitle)}</span>
+            <h2>${escapeMember(activeSlide.title)}</h2>
+            <p>${escapeMember(activeSlide.body)}</p>
+            <span class="hero-support">${escapeMember(activeSlide.tag)}</span>
           </div>
         </div>
         <div class="hero-dots">
-          ${slides.map((_, index) => `<button class="hero-dot ${index === activeIndex ? "active" : ""}" type="button" data-hero-index="${index}" aria-label="Go to slide ${index + 1}"></button>`).join("")}
+          ${slides.map((_, index) => `<button class="hero-dot ${index === activeIndex ? "active" : ""}" type="button" data-hero-index="${escapeMember(index)}" aria-label="Go to slide ${escapeMember(index + 1)}"></button>`).join("")}
         </div>
       ` : ""}
     </section>
@@ -371,10 +380,10 @@ function renderHome() {
       </div>
       <div class="sponsor-grid">
         ${officialPartners.map((partner, index) => `
-          <article class="sponsor-card" data-official-partner-index="${index}" role="button" tabindex="0">
-            <div class="sponsor-logo ${partner.logoClass || "sponsor-tone-1"}">${partner.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
-            <strong>${partner.name}</strong>
-            <span>${partner.category}</span>
+          <article class="sponsor-card" data-official-partner-index="${escapeMember(index)}" role="button" tabindex="0">
+            <div class="sponsor-logo ${escapeMember(partner.logoClass || "sponsor-tone-1")}">${escapeMember(partner.name.split(" ").slice(0, 2).map((part) => part[0]).join(""))}</div>
+            <strong>${escapeMember(partner.name)}</strong>
+            <span>${escapeMember(partner.category)}</span>
           </article>
         `).join("")}
       </div>
@@ -389,10 +398,10 @@ function renderHome() {
       </div>
       <div class="sponsor-grid">
         ${merchantPartners.map((partner, index) => `
-          <article class="sponsor-card" data-merchant-partner-index="${index}" role="button" tabindex="0">
-            <div class="sponsor-logo ${partner.logoClass || "sponsor-tone-2"}">${partner.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
-            <strong>${partner.name}</strong>
-            <span>${partner.category}</span>
+          <article class="sponsor-card" data-merchant-partner-index="${escapeMember(index)}" role="button" tabindex="0">
+            <div class="sponsor-logo ${escapeMember(partner.logoClass || "sponsor-tone-2")}">${escapeMember(partner.name.split(" ").slice(0, 2).map((part) => part[0]).join(""))}</div>
+            <strong>${escapeMember(partner.name)}</strong>
+            <span>${escapeMember(partner.category)}</span>
           </article>
         `).join("")}
       </div>
@@ -408,14 +417,14 @@ function renderHome() {
       <div class="news-grid">
         ${newsCards.map((item) => `
           <article class="news-card">
-            <div class="news-cover ${item.coverClass}"></div>
+            <div class="news-cover ${escapeMember(item.coverClass)}"></div>
             <div class="news-body">
               <div class="news-meta">
-                <span>${item.category}</span>
-                <span>${item.date}</span>
+                <span>${escapeMember(item.category)}</span>
+                <span>${escapeMember(item.date)}</span>
               </div>
-              <h4>${item.title}</h4>
-              <p>${item.content}</p>
+              <h4>${escapeMember(item.title)}</h4>
+              <p>${escapeMember(item.content)}</p>
             </div>
           </article>
         `).join("")}
@@ -460,7 +469,7 @@ function renderHome() {
     const slide = slides[activeIndex];
     if (!slide) return;
     if (slide.link) {
-      window.open(slide.link, "_blank", "noreferrer");
+      openClubLink(slide.link);
     } else if (slide.partnerType && slide.partnerId) {
       if (slide.partnerType === "merchant") {
         location.hash = `#merchant-${slide.partnerId}`;
@@ -474,7 +483,7 @@ function renderHome() {
     card.addEventListener("click", () => {
       const index = Number(card.dataset.officialPartnerIndex);
       const partner = officialPartners[index];
-      if (partner?.link) window.open(partner.link, "_blank", "noreferrer");
+      if (partner?.link) openClubLink(partner.link);
     });
   });
 
@@ -527,9 +536,9 @@ function renderReminderBanner() {
   }
   return state.reminders.map((r) => {
     const title = r.type === "maintenance" ? t("maintenanceReminder") : t("stnkReminder");
-    return `<div class="reminder-banner ${r.type}">
-      <strong>${title}</strong>
-      <span>${formatShortDate(r.dueDate)} · ${r.daysRemaining} ${t("daysLeft")}</span>
+    return `<div class="reminder-banner ${escapeMember(r.type)}">
+      <strong>${escapeMember(title)}</strong>
+      <span>${escapeMember(formatShortDate(r.dueDate))} · ${escapeMember(r.daysRemaining)} ${t("daysLeft")}</span>
     </div>`;
   }).join("");
 }
@@ -547,31 +556,31 @@ function renderMyZenix() {
   const carModel = vehicle.model || fallback.carModel || "";
 
   const chapterOptions = state.chapters.length
-    ? state.chapters.map((c) => `<option value="${c.id}" ${String(person.chapterId) === String(c.id) ? "selected" : ""}>${c.name}</option>`).join("")
+    ? state.chapters.map((c) => `<option value="${escapeMember(c.id)}" ${String(person.chapterId) === String(c.id) ? "selected" : ""}>${escapeMember(c.name)}</option>`).join("")
     : `<option value="">${t("selectChapter")}</option>`;
 
   const modelOptions = state.vehicleOptions.models.length
-    ? state.vehicleOptions.models.map((m) => `<option value="${m.code}" ${vehicle.model === m.code ? "selected" : ""}>${m.label}</option>`).join("")
+    ? state.vehicleOptions.models.map((m) => `<option value="${escapeMember(m.code)}" ${vehicle.model === m.code ? "selected" : ""}>${escapeMember(m.label)}</option>`).join("")
     : `<option value="">G / V / Q</option>`;
 
   const powertrainOptions = state.vehicleOptions.powertrains.length
-    ? state.vehicleOptions.powertrains.map((p) => `<option value="${p.code}" ${vehicle.powertrain === p.code ? "selected" : ""}>${p.label}</option>`).join("")
+    ? state.vehicleOptions.powertrains.map((p) => `<option value="${escapeMember(p.code)}" ${vehicle.powertrain === p.code ? "selected" : ""}>${escapeMember(p.label)}</option>`).join("")
     : `<option value="">Gasoline / Hybrid</option>`;
 
   const yearOptions = state.vehicleOptions.years.length
-    ? state.vehicleOptions.years.map((y) => `<option value="${y}" ${String(vehicle.year) === String(y) ? "selected" : ""}>${y}</option>`).join("")
+    ? state.vehicleOptions.years.map((y) => `<option value="${escapeMember(y)}" ${String(vehicle.year) === String(y) ? "selected" : ""}>${escapeMember(y)}</option>`).join("")
     : `<option value="">2023 / 2024 / 2025</option>`;
 
   const tshirtOptions = state.vehicleOptions.tshirtSizes.length
-    ? state.vehicleOptions.tshirtSizes.map((s) => `<option value="${s}" ${person.tshirtSize === s ? "selected" : ""}>${s}</option>`).join("")
+    ? state.vehicleOptions.tshirtSizes.map((s) => `<option value="${escapeMember(s)}" ${person.tshirtSize === s ? "selected" : ""}>${escapeMember(s)}</option>`).join("")
     : "";
 
   const reminderOptions = state.vehicleOptions.reminderOptions.length
-    ? state.vehicleOptions.reminderOptions.map((o) => `<option value="${o.days}" ${String(vehicle.maintenanceReminderDays) === String(o.days) ? "selected" : ""}>${state.language === "id" ? o.labelId : o.labelEn}</option>`).join("")
+    ? state.vehicleOptions.reminderOptions.map((o) => `<option value="${escapeMember(o.days)}" ${String(vehicle.maintenanceReminderDays) === String(o.days) ? "selected" : ""}>${state.language === "id" ? escapeMember(o.labelId) : escapeMember(o.labelEn)}</option>`).join("")
     : "";
 
   const stnkReminderOptions = state.vehicleOptions.reminderOptions.length
-    ? state.vehicleOptions.reminderOptions.map((o) => `<option value="${o.days}" ${String(vehicle.stnkReminderDays) === String(o.days) ? "selected" : ""}>${state.language === "id" ? o.labelId : o.labelEn}</option>`).join("")
+    ? state.vehicleOptions.reminderOptions.map((o) => `<option value="${escapeMember(o.days)}" ${String(vehicle.stnkReminderDays) === String(o.days) ? "selected" : ""}>${state.language === "id" ? escapeMember(o.labelId) : escapeMember(o.labelEn)}</option>`).join("")
     : "";
 
   document.getElementById("screen-my-zenix").innerHTML = `
@@ -579,7 +588,7 @@ function renderMyZenix() {
       <div class="section-title-row">
         <div>
           <p class="section-kicker">${t("myZenix")}</p>
-          <h3>${carNickname || carModel || t("appTitle")}</h3>
+          <h3>${escapeMember(carNickname || carModel || t("appTitle"))}</h3>
         </div>
       </div>
 
@@ -587,7 +596,7 @@ function renderMyZenix() {
 
       <article class="car-profile-card">
         <div class="car-hero ${carPhoto ? "car-photo-hero" : ""}">
-          ${carPhoto ? `<img src="${carPhoto}" alt="Car photo" class="car-photo">` : "🚙"}
+          ${carPhoto ? `<img src="${escapeMember(carPhoto)}" alt="Car photo" class="car-photo">` : "🚙"}
         </div>
         <div class="car-profile-body">
           <div class="upload-row">
@@ -601,19 +610,19 @@ function renderMyZenix() {
           <div class="car-detail-grid">
             <div class="car-detail-item">
               <span>${t("model")}</span>
-              <strong>${vehicle.model || t("notSet")}</strong>
+              <strong>${escapeMember(vehicle.model || t("notSet"))}</strong>
             </div>
             <div class="car-detail-item">
               <span>${t("year")}</span>
-              <strong>${vehicle.year || t("notSet")}</strong>
+              <strong>${escapeMember(vehicle.year || t("notSet"))}</strong>
             </div>
             <div class="car-detail-item">
               <span>${t("plateNumber")}</span>
-              <strong>${vehicle.plateNumber || t("notSet")}</strong>
+              <strong>${escapeMember(vehicle.plateNumber || t("notSet"))}</strong>
             </div>
             <div class="car-detail-item">
               <span>${t("carNickname")}</span>
-              <strong>${vehicle.nickname || t("notSet")}</strong>
+              <strong>${escapeMember(vehicle.nickname || t("notSet"))}</strong>
             </div>
           </div>
         </div>
@@ -622,11 +631,11 @@ function renderMyZenix() {
       <article class="member-card">
         <div class="member-card-top">
           <div class="avatar-circle large-avatar">
-            ${avatarPhoto ? `<img src="${avatarPhoto}" alt="Profile" class="avatar-photo">` : state.user.name.charAt(0)}
+            ${avatarPhoto ? `<img src="${escapeMember(avatarPhoto)}" alt="Profile" class="avatar-photo">` : escapeMember(state.user.name.charAt(0))}
           </div>
           <div>
-            <strong>${state.user.name}</strong>
-            <p class="muted">@${state.user.username} · ${state.user.role}</p>
+            <strong>${escapeMember(state.user.name)}</strong>
+            <p class="muted">@${escapeMember(state.user.username)} · ${escapeMember(state.user.role)}</p>
           </div>
         </div>
         <div class="upload-row compact">
@@ -640,19 +649,19 @@ function renderMyZenix() {
         <div class="member-detail-grid">
           <div class="member-detail-item">
             <span>${t("phone")}</span>
-            <strong>${person.phone || state.user.phone || t("notSet")}</strong>
+            <strong>${escapeMember(person.phone || state.user.phone || t("notSet"))}</strong>
           </div>
           <div class="member-detail-item">
             <span>${t("chapter")}</span>
-            <strong>${state.chapters.find((c) => String(c.id) === String(person.chapterId))?.name || t("notSet")}</strong>
+            <strong>${escapeMember(state.chapters.find((c) => String(c.id) === String(person.chapterId))?.name || t("notSet"))}</strong>
           </div>
           <div class="member-detail-item">
             <span>${t("memberNumber")}</span>
-            <strong>${person.memberNumber || t("notSet")}</strong>
+            <strong>${escapeMember(person.memberNumber || t("notSet"))}</strong>
           </div>
           <div class="member-detail-item">
             <span>${t("year")}</span>
-            <strong>${vehicle.year || t("notSet")}</strong>
+            <strong>${escapeMember(vehicle.year || t("notSet"))}</strong>
           </div>
         </div>
       </article>
@@ -671,31 +680,31 @@ function renderMyZenix() {
           <div class="form-grid">
             <div class="input-group">
               <label for="fullName">${t("fullName")}</label>
-              <input id="fullName" name="fullName" type="text" value="${person.name || state.user.name || ""}" required>
+              <input id="fullName" name="fullName" type="text" value="${escapeMember(person.name || state.user.name || "")}" required>
             </div>
             <div class="input-group">
               <label for="memberNumber">${t("memberNumber")}</label>
-              <input id="memberNumber" name="memberNumber" type="text" value="${person.memberNumber || ""}" readonly>
+              <input id="memberNumber" name="memberNumber" type="text" value="${escapeMember(person.memberNumber || "")}" readonly>
             </div>
             <div class="input-group">
               <label for="email">${t("email")}</label>
-              <input id="email" name="email" type="email" value="${person.email || ""}">
+              <input id="email" name="email" type="email" value="${escapeMember(person.email || "")}">
             </div>
             <div class="input-group">
               <label for="phone">${t("phone")}</label>
-              <input id="phone" name="phone" type="tel" value="${person.phone || state.user.phone || ""}" required>
+              <input id="phone" name="phone" type="tel" value="${escapeMember(person.phone || state.user.phone || "")}" required>
             </div>
             <div class="input-group span-2">
               <label for="address">${t("address")}</label>
-              <input id="address" name="address" type="text" value="${person.address || ""}">
+              <input id="address" name="address" type="text" value="${escapeMember(person.address || "")}">
             </div>
             <div class="input-group">
               <label for="postalCode">${t("postalCode")}</label>
-              <input id="postalCode" name="postalCode" type="text" value="${person.postalCode || ""}">
+              <input id="postalCode" name="postalCode" type="text" value="${escapeMember(person.postalCode || "")}">
             </div>
             <div class="input-group">
               <label for="socialMedia">${t("socialMedia")}</label>
-              <input id="socialMedia" name="socialMedia" type="text" value="${person.socialMedia || ""}" placeholder="@instagram">
+              <input id="socialMedia" name="socialMedia" type="text" value="${escapeMember(person.socialMedia || "")}" placeholder="@instagram">
             </div>
             <div class="input-group">
               <label for="tshirtSize">${t("tshirtSize")}</label>
@@ -731,11 +740,11 @@ function renderMyZenix() {
           <div class="form-grid">
             <div class="input-group">
               <label for="carNickname">${t("carNickname")}</label>
-              <input id="carNickname" name="carNickname" type="text" value="${vehicle.nickname || fallback.nickname || ""}">
+              <input id="carNickname" name="carNickname" type="text" value="${escapeMember(vehicle.nickname || fallback.nickname || "")}">
             </div>
             <div class="input-group">
               <label for="plateNumber">${t("plateNumber")}</label>
-              <input id="plateNumber" name="plateNumber" type="text" value="${vehicle.plateNumber || fallback.plateNumber || ""}">
+              <input id="plateNumber" name="plateNumber" type="text" value="${escapeMember(vehicle.plateNumber || fallback.plateNumber || "")}">
             </div>
             <div class="input-group">
               <label for="carModel">${t("model")}</label>
@@ -760,11 +769,11 @@ function renderMyZenix() {
             </div>
             <div class="input-group">
               <label for="color">${t("color")}</label>
-              <input id="color" name="color" type="text" value="${vehicle.color || ""}">
+              <input id="color" name="color" type="text" value="${escapeMember(vehicle.color || "")}">
             </div>
             <div class="input-group">
               <label for="stnkExpiryDate">${t("stnkExpiry")}</label>
-              <input id="stnkExpiryDate" name="stnkExpiryDate" type="date" value="${normalizeForInput(vehicle.stnkExpiryDate)}">
+              <input id="stnkExpiryDate" name="stnkExpiryDate" type="date" value="${escapeMember(normalizeForInput(vehicle.stnkExpiryDate))}">
             </div>
             <div class="input-group">
               <label for="stnkReminderDays">${t("stnkReminder")}</label>
@@ -775,19 +784,19 @@ function renderMyZenix() {
             </div>
             <div class="input-group">
               <label for="lastMaintenanceDate">${t("lastMaintenance")}</label>
-              <input id="lastMaintenanceDate" name="lastMaintenanceDate" type="date" value="${normalizeForInput(vehicle.lastMaintenanceDate)}">
+              <input id="lastMaintenanceDate" name="lastMaintenanceDate" type="date" value="${escapeMember(normalizeForInput(vehicle.lastMaintenanceDate))}">
             </div>
             <div class="input-group">
               <label for="nextMaintenanceDate">${t("nextMaintenance")}</label>
-              <input id="nextMaintenanceDate" name="nextMaintenanceDate" type="date" value="${normalizeForInput(vehicle.nextMaintenanceDate)}">
+              <input id="nextMaintenanceDate" name="nextMaintenanceDate" type="date" value="${escapeMember(normalizeForInput(vehicle.nextMaintenanceDate))}">
             </div>
             <div class="input-group">
               <label for="lastMaintenanceKm">${t("lastMaintenanceKm")}</label>
-              <input id="lastMaintenanceKm" name="lastMaintenanceKm" type="number" value="${vehicle.lastMaintenanceKm || ""}">
+              <input id="lastMaintenanceKm" name="lastMaintenanceKm" type="number" value="${escapeMember(vehicle.lastMaintenanceKm || "")}">
             </div>
             <div class="input-group">
               <label for="nextMaintenanceKm">${t("nextMaintenanceKm")}</label>
-              <input id="nextMaintenanceKm" name="nextMaintenanceKm" type="number" value="${vehicle.nextMaintenanceKm || ""}">
+              <input id="nextMaintenanceKm" name="nextMaintenanceKm" type="number" value="${escapeMember(vehicle.nextMaintenanceKm || "")}">
             </div>
             <div class="input-group">
               <label for="maintenanceReminderDays">${t("maintenanceReminder")}</label>
@@ -896,10 +905,10 @@ function renderPointsSection() {
           <p class="section-kicker">${t("points")}</p>
           <h3>${t("myPoints")}</h3>
         </div>
-        <span class="soft-chip">${state.pointsBalance} ${t("pointsLabel")}</span>
+        <span class="soft-chip">${escapeMember(state.pointsBalance)} ${t("pointsLabel")}</span>
       </div>
       <div class="points-balance">
-        <strong>${state.pointsBalance}</strong>
+        <strong>${escapeMember(state.pointsBalance)}</strong>
         <span>${t("currentBalance")}</span>
       </div>
       <div class="section-title-row" style="margin-top: 16px;">
@@ -912,11 +921,11 @@ function renderPointsSection() {
           ${txs.map((tx) => `
             <div class="point-item">
               <div>
-                <strong>${tx.source || "-"}</strong>
-                <p>${tx.description || ""}</p>
-                <span class="muted">${formatShortDate(tx.createdAt)}</span>
+                <strong>${escapeMember(tx.source || "-")}</strong>
+                <p>${escapeMember(tx.description || "")}</p>
+                <span class="muted">${escapeMember(formatShortDate(tx.createdAt))}</span>
               </div>
-              <span class="point-amount ${tx.amount >= 0 ? "positive" : "negative"}">${tx.amount >= 0 ? "+" : ""}${tx.amount}</span>
+              <span class="point-amount ${tx.amount >= 0 ? "positive" : "negative"}">${tx.amount >= 0 ? "+" : ""}${escapeMember(tx.amount)}</span>
             </div>
           `).join("")}
         </div>
@@ -939,11 +948,11 @@ function renderRewardsSection() {
         ${activeRewards.map((reward) => `
           <div class="reward-item">
             <div>
-              <strong>${reward.title}</strong>
-              <p>${reward.description || ""}</p>
-              <span class="muted">${reward.pointsRequired} ${t("pointsLabel")}</span>
+              <strong>${escapeMember(reward.title)}</strong>
+              <p>${escapeMember(reward.description || "")}</p>
+              <span class="muted">${escapeMember(reward.pointsRequired)} ${t("pointsLabel")}</span>
             </div>
-            <button class="primary-button small" type="button" data-redeem="${reward.id}">${t("redeem")}</button>
+            <button class="primary-button small" type="button" data-redeem="${escapeMember(reward.id)}">${t("redeem")}</button>
           </div>
         `).join("")}
       </div>
@@ -958,8 +967,8 @@ function renderRewardsSection() {
         ${state.myRedemptions.slice(0, 5).map((r) => `
           <div class="point-item">
             <div>
-              <strong>${r.rewardTitle || "-"}</strong>
-              <span class="muted">${r.status} · ${r.pointsCost} ${t("pointsLabel")}</span>
+              <strong>${escapeMember(r.rewardTitle || "-")}</strong>
+              <span class="muted">${escapeMember(r.status)} · ${escapeMember(r.pointsCost)} ${t("pointsLabel")}</span>
             </div>
           </div>
         `).join("")}
@@ -983,9 +992,9 @@ function renderMyOrdersSection() {
           ${orders.map((o) => `
             <div class="point-item">
               <div>
-                <strong>${o.productTitle || "-"}</strong>
-                <p>${o.orderNumber} · ${o.quantity}x ${o.variantLabel || ""}</p>
-                <span class="muted">${formatPrice(o.totalPrice)} · ${o.status}</span>
+                <strong>${escapeMember(o.productTitle || "-")}</strong>
+                <p>${escapeMember(o.orderNumber)} · ${escapeMember(o.quantity)}x ${escapeMember(o.variantLabel || "")}</p>
+                <span class="muted">${escapeMember(formatPrice(o.totalPrice))} · ${escapeMember(o.status)}</span>
               </div>
             </div>
           `).join("")}
@@ -1018,29 +1027,29 @@ function renderEvents() {
           <p class="section-kicker">${t("eventRegistration")}</p>
           <h3>${t("upcomingClubPlans")}</h3>
         </div>
-        <span class="soft-chip">${upcoming.length} ${t("eventsCount")}</span>
+        <span class="soft-chip">${escapeMember(upcoming.length)} ${t("eventsCount")}</span>
       </div>
 
       <div class="event-stack">
         ${upcoming.map((event, index) => {
           const mine = getUserRsvp(event);
           return `
-            <article class="event-registration-card" data-event-id="${event.id}" role="button" tabindex="0">
-              <div class="event-registration-cover hero-cover-${(index % 3) + 1}"></div>
+            <article class="event-registration-card" data-event-id="${escapeMember(event.id)}" role="button" tabindex="0">
+              <div class="event-registration-cover hero-cover-${escapeMember((index % 3) + 1)}"></div>
               <div class="event-registration-body">
                 <div class="news-meta">
-                  <span>${event.category || t("eventLabel")}</span>
-                  <span>${formatShortDate(event.date)}</span>
+                  <span>${escapeMember(event.category || t("eventLabel"))}</span>
+                  <span>${escapeMember(formatShortDate(event.date))}</span>
                 </div>
-                <h4>${event.title}</h4>
-                <p>${event.summary}</p>
+                <h4>${escapeMember(event.title)}</h4>
+                <p>${escapeMember(event.summary)}</p>
                 <div class="event-meta">
-                  <span>${event.location}</span>
-                  <span>${event.host || t("clubTeam")}</span>
+                  <span>${escapeMember(event.location)}</span>
+                  <span>${escapeMember(event.host || t("clubTeam"))}</span>
                 </div>
                 <div class="tag-row">
-                  <span class="info-tag">${mine ? `RSVP: ${translateRsvp(mine.status)}` : t("openRsvp")}</span>
-                  <span class="info-tag">${event.meetingPoint || t("meetingPointTBA")}</span>
+                  <span class="info-tag">${mine ? escapeMember(`RSVP: ${translateRsvp(mine.status)}`) : t("openRsvp")}</span>
+                  <span class="info-tag">${escapeMember(event.meetingPoint || t("meetingPointTBA"))}</span>
                 </div>
                 <button class="primary-button" type="button">${t("viewEvent")}</button>
               </div>
@@ -1085,39 +1094,39 @@ function renderEventDetail(eventId) {
             <a class="ghost-button" href="#events">${t("back")}</a>
             <a class="ghost-button" href="#home">${t("home")}</a>
           </div>
-          <p class="section-kicker">${event.category || t("eventDetail")}</p>
-          <h3>${event.title}</h3>
+          <p class="section-kicker">${escapeMember(event.category || t("eventDetail"))}</p>
+          <h3>${escapeMember(event.title)}</h3>
           <div class="event-meta">
-            <span>${formatDate(event.date)}</span>
-            <span>${event.location}</span>
+            <span>${escapeMember(formatDate(event.date))}</span>
+            <span>${escapeMember(event.location)}</span>
           </div>
-          <p>${event.description}</p>
+          <p>${escapeMember(event.description)}</p>
           <div class="member-detail-grid compact-grid">
             <div class="member-detail-item">
               <span>${t("host")}</span>
-              <strong>${event.host || t("clubTeam")}</strong>
+              <strong>${escapeMember(event.host || t("clubTeam"))}</strong>
             </div>
             <div class="member-detail-item">
               <span>${t("meetingPoint")}</span>
-              <strong>${event.meetingPoint || t("sharedLater")}</strong>
+              <strong>${escapeMember(event.meetingPoint || t("sharedLater"))}</strong>
             </div>
           </div>
           <div class="section-title-row">
             <div>
               <p class="section-kicker">${t("yourRsvp")}</p>
-              <h3>${mine ? translateRsvp(mine.status) : t("chooseResponse")}</h3>
+              <h3>${mine ? escapeMember(translateRsvp(mine.status)) : t("chooseResponse")}</h3>
             </div>
           </div>
           <div class="pill-group">
             ${["Going", "Maybe", "Not Going"].map((status) => `
-              <button class="status-button ${mine && mine.status === status ? "active" : ""}" data-rsvp="${status}" type="button">${translateRsvp(status)}</button>
+              <button class="status-button ${mine && mine.status === status ? "active" : ""}" data-rsvp="${escapeMember(status)}" type="button">${escapeMember(translateRsvp(status))}</button>
             `).join("")}
           </div>
           <div class="rsvp-summary">
             <div class="stat-row">
-              <strong>${counts.Going}</strong><span>${t("goingShort")}</span>
-              <strong>${counts.Maybe}</strong><span>${t("maybeShort")}</span>
-              <strong>${counts["Not Going"]}</strong><span>${t("notGoingShort")}</span>
+              <strong>${escapeMember(counts.Going)}</strong><span>${t("goingShort")}</span>
+              <strong>${escapeMember(counts.Maybe)}</strong><span>${t("maybeShort")}</span>
+              <strong>${escapeMember(counts["Not Going"])}</strong><span>${t("notGoingShort")}</span>
             </div>
           </div>
 
@@ -1130,7 +1139,7 @@ function renderEventDetail(eventId) {
                 </div>
               </div>
               ${myCheckIn ? `
-                <p class="muted">${formatDate(myCheckIn.checkedInAt)}</p>
+                <p class="muted">${escapeMember(formatDate(myCheckIn.checkedInAt))}</p>
                 <div class="input-group" style="margin-top: 12px;">
                   <label>${t("uploadAttendancePhotos")}</label>
                   <input type="file" id="attendancePhotoInput" accept="image/*" multiple>
@@ -1256,21 +1265,21 @@ function renderVendors(searchQuery = "") {
           <p class="section-kicker">${t("vendorDirectory")}</p>
           <h3>${t("trustedPartners")}</h3>
         </div>
-        <span class="soft-chip">${filtered.length} ${t("partner").toLowerCase()}</span>
+        <span class="soft-chip">${escapeMember(filtered.length)} ${t("partner").toLowerCase()}</span>
       </div>
-      <input id="vendorSearch" class="vendor-search" type="text" placeholder="${t("searchVendors")}" value="${searchQuery}">
+      <input id="vendorSearch" class="vendor-search" type="text" placeholder="${t("searchVendors")}" value="${escapeMember(searchQuery)}">
       <div class="vendor-grid">
         ${filtered.map((vendor, index) => `
           <article class="vendor-card">
-            <div class="vendor-cover vendor-cover-${(index % 4) + 1}"></div>
+            <div class="vendor-cover vendor-cover-${escapeMember((index % 4) + 1)}"></div>
             <div class="vendor-body">
               <div class="vendor-meta">
-                <span class="info-tag">${vendor.category}</span>
+                <span class="info-tag">${escapeMember(vendor.category)}</span>
               </div>
-              <h4>${vendor.name}</h4>
-              <p>${vendor.description}</p>
+              <h4>${escapeMember(vendor.name)}</h4>
+              <p>${escapeMember(vendor.description)}</p>
               <div class="vendor-actions">
-                ${vendor.whatsapp ? `<a class="primary-button vendor-whatsapp" href="https://wa.me/${vendor.whatsapp.replace(/\D/g, "")}" target="_blank" rel="noreferrer">${t("chatWhatsapp")}</a>` : ""}
+                ${vendor.whatsapp ? `<a class="primary-button vendor-whatsapp" href="https://wa.me/${escapeMember(vendor.whatsapp.replace(/\D/g, ""))}" target="_blank" rel="noreferrer">${t("chatWhatsapp")}</a>` : ""}
               </div>
             </div>
           </article>
@@ -1296,15 +1305,15 @@ function renderMerchandise() {
       </div>
       <div class="merch-grid">
         ${state.products.map((item, index) => `
-          <article class="merch-card" data-product-index="${index}" role="button" tabindex="0">
-            <div class="merch-cover ${item.image || "merch-cover-red"}"></div>
+          <article class="merch-card" data-product-index="${escapeMember(index)}" role="button" tabindex="0">
+            <div class="merch-cover ${escapeMember(item.image || "merch-cover-red")}"></div>
             <div class="merch-body">
               <div class="news-meta">
                 <span>${t("clubStore")}</span>
-                <span>${formatPrice(item.price)}</span>
+                <span>${escapeMember(formatPrice(item.price))}</span>
               </div>
-              <h4>${item.title}</h4>
-              <p>${item.points ? `+${item.points} ${t("pointsLabel")}` : ""}</p>
+              <h4>${escapeMember(item.title)}</h4>
+              <p>${item.points ? escapeMember(`+${item.points} ${t("pointsLabel")}`) : ""}</p>
             </div>
           </article>
         `).join("")}
@@ -1333,12 +1342,12 @@ function renderSponsorDetail() {
   screen.innerHTML = `
     <section class="content-section">
       <article class="event-detail-shell">
-        <div class="sponsor-logo large-logo ${sponsor.logoClass}">${sponsor.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
+        <div class="sponsor-logo large-logo ${escapeMember(sponsor.logoClass)}">${escapeMember(sponsor.name.split(" ").slice(0, 2).map((part) => part[0]).join(""))}</div>
         <div class="detail-card">
           <p class="section-kicker">${t("trustedPartner")}</p>
-          <h3>${sponsor.name}</h3>
+          <h3>${escapeMember(sponsor.name)}</h3>
           <div class="event-meta">
-            <span class="info-tag">${sponsor.category}</span>
+            <span class="info-tag">${escapeMember(sponsor.category)}</span>
           </div>
           <div class="detail-placeholder">
             <p>${t("partnerDetailsPage")}</p>
@@ -1361,14 +1370,14 @@ function renderMerchDetail() {
   screen.innerHTML = `
     <section class="content-section">
       <article class="event-detail-shell">
-        <div class="merch-cover detail-cover ${item.image || "merch-cover-red"}"></div>
+        <div class="merch-cover detail-cover ${escapeMember(item.image || "merch-cover-red")}"></div>
         <div class="detail-card">
           <p class="section-kicker">${t("clubStore")}</p>
-          <h3>${item.title}</h3>
+          <h3>${escapeMember(item.title)}</h3>
           <div class="event-meta">
-            <span>${item.price}</span>
+            <span>${escapeMember(item.price)}</span>
           </div>
-          <p>${item.description}</p>
+          <p>${escapeMember(item.description)}</p>
           <div class="detail-placeholder">
             <p>${t("itemDetailsPage")}</p>
             <p class="muted">${t("readyToFill")}</p>
@@ -1389,25 +1398,25 @@ function renderProductDetail() {
 
   const variants = product.variants || [];
   const hasVariants = variants.length > 0;
-  const variantOptions = variants.map((v) => `<option value="${v.id}">${v.label} ${formatPriceAdjustment(v.priceAdjustment)} ${stockLabel(v)}</option>`).join("");
+  const variantOptions = variants.map((v) => `<option value="${escapeMember(v.id)}">${escapeMember(v.label)} ${escapeMember(formatPriceAdjustment(v.priceAdjustment))} ${escapeMember(stockLabel(v))}</option>`).join("");
   const person = state.profile || {};
 
   screen.innerHTML = `
     <section class="content-section">
       <article class="event-detail-shell">
-        <div class="merch-cover detail-cover ${product.image || "merch-cover-red"}"></div>
+        <div class="merch-cover detail-cover ${escapeMember(product.image || "merch-cover-red")}"></div>
         <div class="detail-card">
           <div class="toolbar">
             <a class="ghost-button" href="#merchandise">${t("back")}</a>
             <a class="ghost-button" href="#home">${t("home")}</a>
           </div>
           <p class="section-kicker">${t("clubStore")}</p>
-          <h3>${product.title}</h3>
+          <h3>${escapeMember(product.title)}</h3>
           <div class="event-meta">
-            <span class="info-tag">${formatPrice(product.price)}</span>
-            ${product.points ? `<span class="info-tag">+${product.points} ${t("pointsLabel")}</span>` : ""}
+            <span class="info-tag">${escapeMember(formatPrice(product.price))}</span>
+            ${product.points ? `<span class="info-tag">+${escapeMember(product.points)} ${t("pointsLabel")}</span>` : ""}
           </div>
-          <p>${product.description || ""}</p>
+          <p>${escapeMember(product.description || "")}</p>
 
           <form id="orderForm" class="form-grid" style="margin-top: 18px;">
             <div class="input-group span-2">
@@ -1423,23 +1432,23 @@ function renderProductDetail() {
             </div>
             <div class="input-group">
               <label for="orderPoints">${t("points")}</label>
-              <input id="orderPoints" name="pointsUsed" type="number" min="0" max="${Math.min(Number(product.price) || 0, state.pointsBalance)}" value="0">
+              <input id="orderPoints" name="pointsUsed" type="number" min="0" max="${escapeMember(Math.min(Number(product.price) || 0, state.pointsBalance))}" value="0">
             </div>
             <div class="input-group span-2">
               <label for="orderRecipient">${t("fullName")}</label>
-              <input id="orderRecipient" name="recipientName" type="text" value="${person.name || state.user.name || ""}" required>
+              <input id="orderRecipient" name="recipientName" type="text" value="${escapeMember(person.name || state.user.name || "")}" required>
             </div>
             <div class="input-group span-2">
               <label for="orderAddress">${t("address")}</label>
-              <input id="orderAddress" name="address" type="text" value="${person.address || ""}" required>
+              <input id="orderAddress" name="address" type="text" value="${escapeMember(person.address || "")}" required>
             </div>
             <div class="input-group">
               <label for="orderPostalCode">${t("postalCode")}</label>
-              <input id="orderPostalCode" name="postalCode" type="text" value="${person.postalCode || ""}">
+              <input id="orderPostalCode" name="postalCode" type="text" value="${escapeMember(person.postalCode || "")}">
             </div>
             <div class="input-group">
               <label for="orderPhone">${t("phone")}</label>
-              <input id="orderPhone" name="phone" type="tel" value="${person.phone || state.user.phone || ""}" required>
+              <input id="orderPhone" name="phone" type="tel" value="${escapeMember(person.phone || state.user.phone || "")}" required>
             </div>
             <div class="input-group span-2">
               <label for="orderPaymentProof">${t("paymentProofUpload")}</label>
@@ -1528,10 +1537,10 @@ function renderMerchantPartners() {
       </div>
       <div class="sponsor-grid">
         ${state.merchantPartners.map((partner, index) => `
-          <article class="sponsor-card" data-merchant-index="${index}" role="button" tabindex="0">
-            <div class="sponsor-logo ${partner.logo || "sponsor-tone-2"}">${partner.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
-            <strong>${partner.name}</strong>
-            <span>${partner.description || t("merchantPartner")}</span>
+          <article class="sponsor-card" data-merchant-index="${escapeMember(index)}" role="button" tabindex="0">
+            <div class="sponsor-logo ${escapeMember(partner.logo || "sponsor-tone-2")}">${escapeMember(partner.name.split(" ").slice(0, 2).map((part) => part[0]).join(""))}</div>
+            <strong>${escapeMember(partner.name)}</strong>
+            <span>${escapeMember(partner.description || t("merchantPartner"))}</span>
           </article>
         `).join("")}
       </div>
@@ -1573,18 +1582,18 @@ async function renderMerchantDetail(merchantId) {
   screen.innerHTML = `
     <section class="content-section">
       <article class="event-detail-shell">
-        <div class="sponsor-logo large-logo ${merchant.logo || "sponsor-tone-2"}">${merchant.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
+        <div class="sponsor-logo large-logo ${escapeMember(merchant.logo || "sponsor-tone-2")}">${escapeMember(merchant.name.split(" ").slice(0, 2).map((part) => part[0]).join(""))}</div>
         <div class="detail-card">
           <div class="toolbar">
             <a class="ghost-button" href="#merchant-partners">${t("back")}</a>
             <a class="ghost-button" href="#home">${t("home")}</a>
           </div>
           <p class="section-kicker">${t("merchantPartner")}</p>
-          <h3>${merchant.name}</h3>
+          <h3>${escapeMember(merchant.name)}</h3>
           <div class="event-meta">
-            ${merchant.contact ? `<span class="info-tag">${merchant.contact}</span>` : ""}
+            ${merchant.contact ? `<span class="info-tag">${escapeMember(merchant.contact)}</span>` : ""}
           </div>
-          <p>${merchant.description || ""}</p>
+          <p>${escapeMember(merchant.description || "")}</p>
 
           <div class="section-title-row" style="margin-top: 24px;">
             <div>
@@ -1594,14 +1603,14 @@ async function renderMerchantDetail(merchantId) {
           </div>
           <div class="merch-grid">
             ${products.map((item, index) => `
-              <article class="merch-card" data-merchant-product-index="${index}" role="button" tabindex="0">
-                <div class="merch-cover ${item.image || "merch-cover-sand"}"></div>
+              <article class="merch-card" data-merchant-product-index="${escapeMember(index)}" role="button" tabindex="0">
+                <div class="merch-cover ${escapeMember(item.image || "merch-cover-sand")}"></div>
                 <div class="merch-body">
                   <div class="news-meta">
-                    <span>${formatPrice(item.price)}</span>
-                    <span>${item.points ? `+${item.points} ${t("pointsLabel")}` : ""}</span>
+                    <span>${escapeMember(formatPrice(item.price))}</span>
+                    <span>${item.points ? escapeMember(`+${item.points} ${t("pointsLabel")}`) : ""}</span>
                   </div>
-                  <h4>${item.title}</h4>
+                  <h4>${escapeMember(item.title)}</h4>
                 </div>
               </article>
             `).join("")}
@@ -1641,7 +1650,7 @@ function renderLeaderboard() {
         </div>
         <div class="input-group">
           <label for="leaderboardDate">${t("date")}</label>
-          <input id="leaderboardDate" type="date" value="${new Date().toISOString().slice(0, 10)}">
+          <input id="leaderboardDate" type="date" value="${escapeMember(new Date().toISOString().slice(0, 10))}">
         </div>
       </div>
       <button class="primary-button" id="loadLeaderboardButton" type="button">${t("load")}</button>
@@ -1656,7 +1665,7 @@ function renderLeaderboard() {
       const data = await api(`/api/leaderboard?period=${period}&date=${date}`);
       renderLeaderboardResults(data);
     } catch (err) {
-      document.getElementById("leaderboardResults").innerHTML = `<div class="empty-state">${err.message}</div>`;
+      document.getElementById("leaderboardResults").innerHTML = `<div class="empty-state">${escapeMember(err.message)}</div>`;
     }
   });
 }
@@ -1667,12 +1676,12 @@ function renderLeaderboardResults(data) {
     <div class="leaderboard-list">
       ${entries.map((entry) => `
         <div class="leaderboard-item ${entry.rank <= 3 ? "top" : ""}">
-          <div class="leaderboard-rank">#${entry.rank}</div>
+          <div class="leaderboard-rank">#${escapeMember(entry.rank)}</div>
           <div class="leaderboard-info">
-            <strong>${entry.name || "-"}</strong>
-            <span class="muted">${entry.memberNumber || ""} · ${entry.chapter || "-"}</span>
+            <strong>${escapeMember(entry.name || "-")}</strong>
+            <span class="muted">${escapeMember(entry.memberNumber || "")} · ${escapeMember(entry.chapter || "-")}</span>
           </div>
-          <div class="leaderboard-points">${entry.points} ${t("pointsLabel")}</div>
+          <div class="leaderboard-points">${escapeMember(entry.points)} ${t("pointsLabel")}</div>
         </div>
       `).join("")}
     </div>
@@ -1681,23 +1690,23 @@ function renderLeaderboardResults(data) {
 
 function renderRegistrationForm() {
   const chapterOptions = state.publicChapters.length
-    ? state.publicChapters.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+    ? state.publicChapters.map((c) => `<option value="${escapeMember(c.id)}">${escapeMember(c.name)}</option>`).join("")
     : `<option value="">${t("selectChapter")}</option>`;
 
   const modelOptions = state.publicVehicleOptions.models.length
-    ? state.publicVehicleOptions.models.map((m) => `<option value="${m.code}">${m.label}</option>`).join("")
+    ? state.publicVehicleOptions.models.map((m) => `<option value="${escapeMember(m.code)}">${escapeMember(m.label)}</option>`).join("")
     : `<option value="">G / V / Q</option>`;
 
   const powertrainOptions = state.publicVehicleOptions.powertrains.length
-    ? state.publicVehicleOptions.powertrains.map((p) => `<option value="${p.code}">${p.label}</option>`).join("")
+    ? state.publicVehicleOptions.powertrains.map((p) => `<option value="${escapeMember(p.code)}">${escapeMember(p.label)}</option>`).join("")
     : `<option value="">Gasoline / Hybrid</option>`;
 
   const yearOptions = state.publicVehicleOptions.years.length
-    ? state.publicVehicleOptions.years.map((y) => `<option value="${y}">${y}</option>`).join("")
+    ? state.publicVehicleOptions.years.map((y) => `<option value="${escapeMember(y)}">${escapeMember(y)}</option>`).join("")
     : `<option value="">2023 / 2024 / 2025</option>`;
 
   const tshirtOptions = state.publicVehicleOptions.tshirtSizes.length
-    ? state.publicVehicleOptions.tshirtSizes.map((s) => `<option value="${s}">${s}</option>`).join("")
+    ? state.publicVehicleOptions.tshirtSizes.map((s) => `<option value="${escapeMember(s)}">${escapeMember(s)}</option>`).join("")
     : "";
 
   document.getElementById("registerFields").innerHTML = `
@@ -1843,7 +1852,7 @@ function renderChrome() {
   const drawerAvatar = document.getElementById("drawerAvatar");
   const avatarPhoto = state.avatarPhoto;
   if (drawerAvatar) {
-    drawerAvatar.innerHTML = avatarPhoto ? `<img src="${avatarPhoto}" alt="Profile" class="avatar-photo small">` : state.user.name.charAt(0);
+    drawerAvatar.innerHTML = avatarPhoto ? `<img src="${escapeMember(avatarPhoto)}" alt="Profile" class="avatar-photo small">` : escapeMember(state.user.name.charAt(0));
   }
   loadCarProfile();
   applyStaticTranslations();
@@ -2038,7 +2047,7 @@ async function handleLogout(redirectToLogin = true) {
   } catch {
     // Ignore logout failures and clear UI state.
   }
-  localStorage.removeItem("api_token");
+  sessionStorage.removeItem("api_token");
   closeDrawer();
   showLogin();
   if (redirectToLogin) {
@@ -2047,6 +2056,7 @@ async function handleLogout(redirectToLogin = true) {
 }
 
 async function bootApp() {
+  localStorage.removeItem("api_token");
   loadTheme();
   loadLanguagePreference();
   if (window.I18N) window.I18N.initToggle("langToggle");
@@ -2062,7 +2072,7 @@ async function bootApp() {
         body: JSON.stringify({
           username: form.get("username"),
           password: form.get("password"),
-          scope: "member"
+          scope: "member", tokenAuth: Boolean(memberApiOrigin())
         })
       });
 
@@ -2071,7 +2081,7 @@ async function bootApp() {
         state.language = result.user.language;
         localStorage.setItem(languageKey(), result.user.language);
       }
-      localStorage.setItem("api_token", result.token);
+      if (result.token) sessionStorage.setItem("api_token", result.token);
       document.getElementById("loginPassword").value = "";
       await enterMemberApp(memberEntryHash() || "#home");
     } catch (err) {
@@ -2105,7 +2115,7 @@ async function bootApp() {
     if (event.detail.lang !== state.language) setLanguage(event.detail.lang);
   });
   await loadPublicReferenceData();
-  if (localStorage.getItem("api_token") && await restoreSession()) {
+  if (await restoreSession()) {
     await enterMemberApp(memberEntryHash() || location.hash || "#home");
   } else if (!state.user && document.getElementById("registerForm").classList.contains("hidden")) {
     showLogin();
