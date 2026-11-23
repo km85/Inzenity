@@ -1,10 +1,14 @@
 {
-  "appId": "com.inzenity.app",
-  "appName": "Inzenity",
-  "webDir": "public",
-  "plugins": {
-    "CapacitorHttp": {
-      "enabled": true
-    }
-  }
+	"appId": "com.inzenity.app",
+	"appName": "Inzenity",
+	"webDir": "member-www",
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	},
+	"server": {
+		"androidScheme": "https",
+		"cleartext": false
+	}
 }

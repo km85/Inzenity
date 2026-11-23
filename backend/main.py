@@ -12,7 +12,17 @@ import uuid
 import json
 import os
 import re
-import base64
+from pathlib import Path
+import hashlib
+import secrets
+import shutil
+from sqlalchemy import event
+from sqlalchemy.exc import OperationalError
+from starlette.responses import JSONResponse
+if __package__:
+    from . import hardening
+else:
+    import hardening
 
 # --- Database ---
 SQLALCHEMY_DATABASE_URL = os.environ.get("INZENITY_DB_URL", "sqlite:///./inzenity.db")
@@ -514,30 +524,53 @@ def migrate_database(engine):
                     conn.execute(text(f"ALTER TABLE banners ADD COLUMN {col_name} {col_type.compile(engine.dialect)}"))
         conn.commit()
 
-Base.metadata.create_all(bind=engine)
-migrate_database(engine)
 
 # --- Pydantic ---
 class LoginRequest(BaseModel):
     username: str
     password: str
     scope: str = "member"
+    tokenAuth: bool = False
 
 class RsvpRequest(BaseModel):
     status: str
 
 # --- App ---
 app = FastAPI(title="Inzenity Backend")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+origins = hardening.configured_origins()
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
+                   allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                   allow_headers=["Content-Type", "X-API-Token"])
+app.add_middleware(hardening.TransportBoundary, origins=origins)
 
-def get_db():
+
+@app.exception_handler(OperationalError)
+async def database_busy(request, exc):
+    if "locked" not in str(exc.orig).lower():
+        raise exc
+    return JSONResponse({"detail": "Database busy, retry the request"}, 503,
+                        headers={"Retry-After": "1"})
+
+
+def get_db(request: Request):
     db = SessionLocal()
+    event.listen(db, "after_commit", finish_files)
     try:
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            # SQLite serializes writers. Take the lock before reading any
+            # balances, statuses, identities or stock used in a write decision.
+            db.execute(text("BEGIN IMMEDIATE"))
         yield db
     finally:
         db.close()
+        for file in db.info.pop("new_files", []):
+            file.unlink(missing_ok=True)
 
 SESSION_COOKIE = "zenix_session"
+
+def token_digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
 
 def get_session(request: Request, db: Session = Depends(get_db)):
     # Prefer explicit API token header over cookie so mobile/API clients
@@ -547,8 +580,8 @@ def get_session(request: Request, db: Session = Depends(get_db)):
         token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
-    session = db.query(SessionModel).filter(SessionModel.token == token).first()
-    if not session:
+    session = db.query(SessionModel).filter(SessionModel.token == token_digest(token)).first()
+    if not session or not session.created_at or session.created_at <= datetime.utcnow() - timedelta(seconds=hardening.SESSION_SECONDS):
         return None
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user:
@@ -908,7 +941,22 @@ def item_to_dict(item):
         d[key] = val
     return d
 
+class IdentityFloor(Base):
+    __tablename__ = "identity_floors"
+    name = Column(String, primary_key=True)
+    high = Column(Integer, nullable=False)
+
+
 def get_next_id(db, model):
+    if model in (User, CheckIn):
+        floor = db.get(IdentityFloor, model.__tablename__)
+        current = db.query(func.max(model.id)).scalar() or 0
+        if floor is None:
+            floor = IdentityFloor(name=model.__tablename__, high=current)
+            db.add(floor)
+        floor.high = max(floor.high, current) + 1
+        db.flush()
+        return floor.high
     max_item = db.query(model).order_by(model.id.desc()).first()
     return (max_item.id + 1) if max_item else 1
 
@@ -956,15 +1004,13 @@ def _send_push_internal(db: Session, user_id: int, title: str, body: str):
         return {"success": False, "error": "No FCM token registered"}
     
     # TODO: Integrate FCM HTTP v1 API when credentials are available
-    # For now, log the notification (placeholder)
-    print(f"[FCM PLACEHOLDER] To user {user_id} ({user.name}): {title} — {body}")
+    # Keep member details and location out of operational logs.
     
     return {
         "success": True,
         "user_id": user_id,
         "title": title,
         "body": body,
-        "fcm_token": user.fcm_token[:20] + "..." if user.fcm_token else None,
         "message": "Push notification queued (FCM credentials pending)"
     }
 
@@ -979,36 +1025,106 @@ def send_push_to_users(user_ids: list, title: str, body: str, db: Session = None
 # --- File helpers ---
 public_dir = os.path.join(os.path.dirname(__file__), "..", "public")
 
-# Mount static files (APK, HTML, CSS, JS, etc.)
-app.mount("/public", StaticFiles(directory=public_dir), name="public")
+class PublicFiles(StaticFiles):
+    def lookup_path(self, path):
+        parts = Path(os.path.normpath(path)).parts
+        if len(parts) >= 2 and parts[0] == "uploads" and parts[1] in hardening.PRIVATE_FOLDERS:
+            return "", None
+        return super().lookup_path(path)
 
-uploads_dir = os.path.join(public_dir, "uploads", "chapters")
-os.makedirs(uploads_dir, exist_ok=True)
 
-def save_base64_image(data_uri: str, folder: str, filename: str) -> str:
-    if not data_uri:
-        return None
-    match = re.match(r"data:image/(\w+);base64,(.+)", data_uri)
-    if not match:
-        return None
-    ext = match.group(1)
-    data = match.group(2)
-    folder_path = os.path.join(public_dir, "uploads", folder)
-    os.makedirs(folder_path, exist_ok=True)
-    file_path = os.path.join(folder_path, filename)
-    with open(file_path, "wb") as f:
-        f.write(base64.b64decode(data))
-    return f"/uploads/{folder}/{filename}"
+app.mount("/public", PublicFiles(directory=public_dir), name="public")
 
-def delete_uploaded_image(path: str):
-    if not path:
+
+def migrate_private_files():
+    root = hardening.private_root(public_dir)
+    for folder in hardening.PRIVATE_FOLDERS:
+        old = Path(public_dir) / "uploads" / folder
+        if old.is_symlink():
+            raise RuntimeError("Unexpected private upload symlink")
+        if not old.exists():
+            continue
+        dest = root / folder
+        dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for source in old.iterdir():
+            target = dest / source.name
+            if source.is_symlink() or not source.is_file() or target.exists():
+                raise RuntimeError("Private upload migration needs operator review")
+            shutil.move(str(source), str(target))
+            target.chmod(0o600)
+        old.rmdir()
+
+
+def save_base64_image(data_uri, folder, db):
+    extension, data = hardening.decode_image(data_uri)
+    private = folder in hardening.PRIVATE_FOLDERS
+    root = hardening.private_root(public_dir) if private else Path(public_dir) / "uploads"
+    dest = root / folder
+    dest.mkdir(parents=True, mode=0o700, exist_ok=True)
+    name = f"{uuid.uuid4().hex}.{extension}"
+    path = dest / name
+    with os.fdopen(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "wb") as out:
+        db.info.setdefault("new_files", []).append(path)
+        out.write(data)
+    return f"/uploads/{folder}/{name}"
+
+
+def delete_uploaded_image(path, folder, db):
+    if not isinstance(path, str):
         return
-    try:
-        full = os.path.join(public_dir, path.lstrip("/"))
-        if os.path.exists(full):
-            os.remove(full)
-    except Exception:
-        pass
+    match = re.fullmatch(r"/uploads/([a-z_]+)/([a-zA-Z0-9_.-]+)", path)
+    if not match or match[1] != folder or match[2] in (".", ".."):
+        return
+    root = hardening.private_root(public_dir) if match[1] in hardening.PRIVATE_FOLDERS else Path(public_dir) / "uploads"
+    file = root / match[1] / match[2]
+    db.info.setdefault("retired_files", []).append(file)
+
+
+def finish_files(db):
+    db.info.pop("new_files", None)
+    for file in db.info.pop("retired_files", []):
+        file.unlink(missing_ok=True)
+
+
+@app.get("/uploads/{folder}/{name}")
+def uploaded_file(folder: str, name: str, request: Request, db: Session = Depends(get_db)):
+    if folder not in hardening.PRIVATE_FOLDERS:
+        from fastapi.responses import FileResponse
+        root = (Path(public_dir) / "uploads").resolve()
+        path = (root / folder / name).resolve()
+        if not path.is_relative_to(root) or not path.is_file() or path.relative_to(root).parts[0] in hardening.PRIVATE_FOLDERS:
+            raise HTTPException(404)
+        return FileResponse(path)
+    session = require_any(request, db)
+    user = session["user"]
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+", name):
+        raise HTTPException(404)
+    url = f"/uploads/{folder}/{name}"
+    if folder == "registrations":
+        allowed = user.role == "admin" and db.query(Registration.id).filter(
+            (Registration.stnk_image == url) | (Registration.payment_proof_image == url)).first()
+    elif folder == "attendance":
+        q = db.query(AttendancePhoto.id).join(CheckIn).filter(AttendancePhoto.path == url)
+        allowed = (q if user.role == "admin" else q.filter(CheckIn.user_id == user.id)).first()
+    else:
+        q = db.query(Order.id).filter(Order.payment_proof_image == url)
+        if user.role == "merchant":
+            q = q.join(MerchantPartner).filter(MerchantPartner.owner_user_id == user.id)
+        elif user.role != "admin":
+            q = q.filter(Order.user_id == user.id)
+        allowed = q.first()
+    path = hardening.private_root(public_dir) / folder / name
+    if not allowed or not path.is_file() or path.is_symlink():
+        raise HTTPException(404)
+    with path.open("rb") as image:
+        fmt, data = hardening.read_image(image.read(hardening.MAX_IMAGE_BYTES + 1))
+    return Response(data, media_type="image/" + fmt, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+    })
+
+
+migrate_private_files()
 
 # --- Seed ---
 def seed_database():
@@ -1019,9 +1135,13 @@ def seed_database():
         seed_path = os.path.join(os.path.dirname(__file__), "..", "data", "seed.json")
         with open(seed_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+        if (floor := db.get(IdentityFloor, "users")) and floor.high and data.get("users"):
+            return  # Never resurrect retired seed identities.
         for u in data.get("users", []):
+            if "password" in u or not str(u.get("passwordHash", "")).startswith("$argon2id$"):
+                raise RuntimeError("Seed accounts require offline Argon2id hashes")
             db.add(User(
-                id=u["id"], name=u["name"], username=u["username"], password=u["password"],
+                id=u["id"], name=u["name"], username=u["username"], password=u["passwordHash"],
                 phone=u["phone"], role=u["role"], city=u["city"],
                 email=u.get("email"), member_number=u.get("memberNumber"),
                 language=u.get("language", "id"), chapter_id=u.get("chapterId")
@@ -1085,27 +1205,43 @@ def seed_reference_data():
     finally:
         db.close()
 
-seed_database()
-seed_reference_data()
+def migrate_security():
+    with engine.begin() as conn:
+        conn.execute(text("BEGIN IMMEDIATE"))
+        conn.execute(text("CREATE TABLE IF NOT EXISTS security_versions (version INTEGER PRIMARY KEY)"))
+        if conn.execute(text("SELECT 1 FROM security_versions WHERE version=1")).first():
+            return
+        for table in ("users", "registrations"):
+            rows = conn.execute(text(f"SELECT id,password FROM {table}")).all()
+            for ident, secret in rows:
+                # Null, oversized or empty legacy credentials are invalidated.
+                value = secret if secret and len(secret.encode()) <= 1024 else secrets.token_urlsafe(48)
+                conn.execute(text(f"UPDATE {table} SET password=:pw WHERE id=:id"),
+                             {"pw": hardening.hash_password(value), "id": ident})
+        conn.execute(text("DELETE FROM attendance_photos WHERE check_in_id NOT IN (SELECT id FROM check_ins)"))
+        conn.execute(text("DELETE FROM sessions"))
+        conn.execute(text("INSERT INTO security_versions VALUES (1)"))
+
 
 # --- Auth ---
 @app.post("/api/auth/login")
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
     username = body.username.strip().lower()
-    password = body.password.strip()
+    password = body.password
     user = db.query(User).filter(func.lower(User.username) == username).first()
-    if not user or user.password != password:
+    if not user or not hardening.password_matches(user.password, password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    if body.scope == "admin" and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    if body.scope == "member" and user.role != "member":
-        raise HTTPException(status_code=403, detail="Member access required")
+    if body.scope not in {"admin", "member", "merchant"} or body.scope != user.role:
+        raise HTTPException(403, "Requested scope unavailable")
     db.query(SessionModel).filter(SessionModel.user_id == user.id).delete()
-    token = uuid.uuid4().hex
-    db.add(SessionModel(token=token, user_id=user.id, role=user.role))
+    token = secrets.token_urlsafe(32)
+    db.add(SessionModel(token=token_digest(token), user_id=user.id, role=user.role))
     db.commit()
-    response.set_cookie(key=SESSION_COOKIE, value=token, httponly=True, samesite="lax")
-    return {"user": sanitize_user(user), "token": token}
+    response.set_cookie(key=SESSION_COOKIE, value=token, max_age=hardening.SESSION_SECONDS, secure=True, httponly=True, samesite="lax")
+    result = {"user": sanitize_user(user)}
+    if body.tokenAuth:
+        result["token"] = token
+    return result
 
 @app.get("/api/auth/me")
 def auth_me(session = Depends(get_session)):
@@ -1115,13 +1251,11 @@ def auth_me(session = Depends(get_session)):
 
 @app.post("/api/auth/logout")
 def logout(request: Request, response: Response, db: Session = Depends(get_db)):
-    token = request.cookies.get(SESSION_COOKIE)
-    if not token:
-        token = request.headers.get("x-api-token")
+    token = request.headers.get("x-api-token") or request.cookies.get(SESSION_COOKIE)
     if token:
-        db.query(SessionModel).filter(SessionModel.token == token).delete()
+        db.query(SessionModel).filter(SessionModel.token == token_digest(token)).delete()
         db.commit()
-    response.set_cookie(key=SESSION_COOKIE, value="", max_age=0, httponly=True, samesite="lax")
+    response.set_cookie(key=SESSION_COOKIE, value="", max_age=0, secure=True, httponly=True, samesite="lax")
     return {"success": True}
 
 # --- Health & Reset ---
@@ -1190,10 +1324,10 @@ def register(body: dict = Body(default={}), db: Session = Depends(get_db)):
     email = (body.get("email") or "").strip()
     if not username or not body.get("password") or not body.get("fullName"):
         raise HTTPException(status_code=400, detail="Username, password, and full name are required")
-    if db.query(User).filter(User.username == username).first():
+    if db.query(User).filter(func.lower(User.username) == username.lower()).first():
         raise HTTPException(status_code=400, detail="Username already taken")
-    if db.query(Registration).filter(Registration.username == username, Registration.status == "pending").first():
-        raise HTTPException(status_code=400, detail="Username is already pending approval")
+    if db.query(Registration).filter(func.lower(Registration.username) == username.lower()).first():
+        raise HTTPException(status_code=400, detail="Username already registered")
 
     reg = Registration(
         id=get_next_id(db, Registration),
@@ -1210,14 +1344,14 @@ def register(body: dict = Body(default={}), db: Session = Depends(get_db)):
         vehicle_color=body.get("vehicleColor"),
         plate_number=body.get("plateNumber"),
         username=username,
-        password=body.get("password"),
+        password=hardening.hash_password(body.get("password")),
         location_lat=body.get("locationLat"),
         location_lon=body.get("locationLon"),
     )
     if body.get("stnkImage"):
-        reg.stnk_image = save_base64_image(body["stnkImage"], "registrations", f"stnk_{reg.id}.png")
+        reg.stnk_image = save_base64_image(body["stnkImage"], "registrations", db)
     if body.get("paymentProofImage"):
-        reg.payment_proof_image = save_base64_image(body["paymentProofImage"], "registrations", f"payment_{reg.id}.png")
+        reg.payment_proof_image = save_base64_image(body["paymentProofImage"], "registrations", db)
     db.add(reg)
     db.commit()
     return {"success": True, "id": reg.id, "status": reg.status}
@@ -1255,7 +1389,7 @@ def update_registration(reg_id: int, body: dict = Body(default={}), session = De
         ("address", "address"), ("postalCode", "postal_code"), ("tshirtSize", "tshirt_size"),
         ("vehicleModel", "vehicle_model"), ("vehiclePowertrain", "vehicle_powertrain"),
         ("vehicleYear", "vehicle_year"), ("vehicleColor", "vehicle_color"), ("plateNumber", "plate_number"),
-        ("username", "username"), ("password", "password"), ("rejectionReason", "rejection_reason"),
+        ("username", "username"), ("rejectionReason", "rejection_reason"),
         ("locationLat", "location_lat"), ("locationLon", "location_lon"),
     ]:
         if json_key in body:
@@ -1263,23 +1397,28 @@ def update_registration(reg_id: int, body: dict = Body(default={}), session = De
     if "chapterId" in body:
         reg.chapter_id = parse_int(body["chapterId"])
 
+    if body.get("password"):
+        reg.password = hardening.hash_password(body["password"])
+
     # File updates
     if "stnkImage" in body:
         if body["stnkImage"]:
-            delete_uploaded_image(reg.stnk_image)
-            reg.stnk_image = save_base64_image(body["stnkImage"], "registrations", f"stnk_{reg.id}.png")
+            delete_uploaded_image(reg.stnk_image, "registrations", db)
+            reg.stnk_image = save_base64_image(body["stnkImage"], "registrations", db)
         else:
-            delete_uploaded_image(reg.stnk_image)
+            delete_uploaded_image(reg.stnk_image, "registrations", db)
             reg.stnk_image = None
     if "paymentProofImage" in body:
         if body["paymentProofImage"]:
-            delete_uploaded_image(reg.payment_proof_image)
-            reg.payment_proof_image = save_base64_image(body["paymentProofImage"], "registrations", f"payment_{reg.id}.png")
+            delete_uploaded_image(reg.payment_proof_image, "registrations", db)
+            reg.payment_proof_image = save_base64_image(body["paymentProofImage"], "registrations", db)
         else:
-            delete_uploaded_image(reg.payment_proof_image)
+            delete_uploaded_image(reg.payment_proof_image, "registrations", db)
             reg.payment_proof_image = None
 
     if new_status != old_status:
+        if old_status != "pending" or new_status not in {"approved", "rejected"}:
+            raise HTTPException(409, "Invalid registration transition")
         reg.status = new_status
         reg.reviewed_at = datetime.utcnow()
         reg.reviewer_id = admin_user.id
@@ -1288,8 +1427,9 @@ def update_registration(reg_id: int, body: dict = Body(default={}), session = De
             existing = db.query(User).filter(User.username == reg.username).first()
             if existing:
                 raise HTTPException(status_code=400, detail="Username already exists in users")
+            account_id = get_next_id(db, User)
             new_user = User(
-                id=get_next_id(db, User),
+                id=account_id,
                 name=reg.full_name,
                 username=reg.username,
                 password=reg.password,
@@ -1302,7 +1442,7 @@ def update_registration(reg_id: int, body: dict = Body(default={}), session = De
                 tshirt_size=reg.tshirt_size,
                 chapter_id=reg.chapter_id,
                 language="id",
-                member_number=f"IZ-{get_next_id(db, User):04d}",
+                member_number=f"IZ-{account_id:04d}",
                 points_balance=0,
             )
             db.add(new_user)
@@ -1328,8 +1468,8 @@ def delete_registration(reg_id: int, session = Depends(require_admin)):
     reg = db.query(Registration).filter(Registration.id == reg_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail="Not found")
-    delete_uploaded_image(reg.stnk_image)
-    delete_uploaded_image(reg.payment_proof_image)
+    delete_uploaded_image(reg.stnk_image, "registrations", db)
+    delete_uploaded_image(reg.payment_proof_image, "registrations", db)
     db.delete(reg)
     db.commit()
     return {"success": True}
@@ -1343,7 +1483,6 @@ def get_users(session = Depends(require_admin)):
         "id": u.id,
         "name": u.name,
         "username": u.username,
-        "password": u.password,
         "phone": u.phone,
         "role": u.role,
         "city": u.city,
@@ -1366,7 +1505,7 @@ def create_user(body: dict = Body(default={}), session = Depends(require_admin))
         id=get_next_id(db, User),
         name=body.get("name"),
         username=body.get("username"),
-        password=body.get("password"),
+        password=hardening.hash_password(body.get("password")),
         phone=body.get("phone"),
         role=body.get("role", "member"),
         city=body.get("city"),
@@ -1406,11 +1545,14 @@ def update_user(user_id: int, body: dict = Body(default={}), session = Depends(r
         "socialMedia": "social_media", "tshirtSize": "tshirt_size", "language": "language",
         "memberNumber": "member_number",
     }
+    if "role" in body and body["role"] != user.role:
+        db.query(SessionModel).filter_by(user_id=user.id).delete()
     for json_key, db_field in field_map.items():
         if json_key in body:
             setattr(user, db_field, body[json_key])
     if "password" in body and body["password"]:
-        user.password = body["password"]
+        user.password = hardening.hash_password(body["password"])
+        db.query(SessionModel).filter_by(user_id=user.id).delete()
     if "chapterId" in body:
         cid = parse_int(body["chapterId"])
         if cid:
@@ -1431,6 +1573,13 @@ def delete_user(user_id: int, session = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    for registration in db.query(Registration).filter_by(username=user.username, status="approved"):
+        registration.username = "retired-" + uuid.uuid4().hex
+    checkins = db.query(CheckIn.id).filter_by(user_id=user_id)
+    photos = db.query(AttendancePhoto).filter(AttendancePhoto.check_in_id.in_(checkins.statement))
+    for photo in photos:
+        delete_uploaded_image(photo.path, "attendance", db)
+        db.delete(photo)
     db.delete(user)
     db.query(SessionModel).filter(SessionModel.user_id == user_id).delete()
     db.query(RSVP).filter(RSVP.user_id == user_id).delete()
@@ -1590,12 +1739,11 @@ def create_chapter(body: dict = Body(default={}), session = Depends(require_admi
         raise HTTPException(status_code=400, detail="Chapter name required")
     chapter = Chapter(id=get_next_id(db, Chapter), name=name)
     db.add(chapter)
-    db.commit()
-    db.refresh(chapter)
+    db.flush()
     logo = body.get("logo")
     if logo:
-        chapter.logo = save_base64_image(logo, "chapters", f"{chapter.id}.png")
-        db.commit()
+        chapter.logo = save_base64_image(logo, "chapters", db)
+    db.commit()
     return chapter_to_dict(chapter)
 
 @app.get("/api/chapters/{chapter_id}")
@@ -1617,10 +1765,10 @@ def update_chapter(chapter_id: int, body: dict = Body(default={}), session = Dep
         chapter.name = name
     logo = body.get("logo")
     if logo:
-        delete_uploaded_image(chapter.logo)
-        chapter.logo = save_base64_image(logo, "chapters", f"{chapter.id}.png")
+        delete_uploaded_image(chapter.logo, "chapters", db)
+        chapter.logo = save_base64_image(logo, "chapters", db)
     elif "logo" in body and not logo:
-        delete_uploaded_image(chapter.logo)
+        delete_uploaded_image(chapter.logo, "chapters", db)
         chapter.logo = None
     db.commit()
     return chapter_to_dict(chapter)
@@ -1632,7 +1780,7 @@ def delete_chapter(chapter_id: int, session = Depends(require_admin)):
     if not chapter:
         raise HTTPException(status_code=404, detail="Not found")
     db.query(User).filter(User.chapter_id == chapter_id).update({"chapter_id": None})
-    delete_uploaded_image(chapter.logo)
+    delete_uploaded_image(chapter.logo, "chapters", db)
     db.delete(chapter)
     db.commit()
     return {"success": True}
@@ -1968,13 +2116,13 @@ def upload_checkin_photos(check_in_id: int, body: dict = Body(default={}), sessi
     if not ci:
         raise HTTPException(status_code=404, detail="Check-in not found")
     photos = body.get("photos", []) or []
-    if len(photos) > 3:
+    if not isinstance(photos, list) or len(ci.photos) + len(photos) > 3:
         raise HTTPException(status_code=400, detail="Maximum 3 photos allowed")
     saved_paths = []
     for i, data_uri in enumerate(photos):
-        path = save_base64_image(data_uri, "attendance", f"{ci.id}_{i+1}.png")
+        path = save_base64_image(data_uri, "attendance", db)
         if path:
-            db.add(AttendancePhoto(id=get_next_id(db, AttendancePhoto), check_in_id=ci.id, path=path))
+            db.add(AttendancePhoto(check_in_id=ci.id, path=path))
             saved_paths.append(path)
     db.commit()
     return checkin_to_dict(ci)
@@ -2471,7 +2619,7 @@ def create_point_transaction(body: dict = Body(default={}), session = Depends(re
     db.add(tx)
     user.points_balance = (user.points_balance or 0) + amount
     if user.points_balance < 0:
-        user.points_balance = 0
+        raise HTTPException(409, "Adjustment exceeds available balance")
     db.commit()
     return transaction_to_dict(tx)
 
@@ -2494,7 +2642,7 @@ def create_reward(body: dict = Body(default={}), session = Depends(require_admin
         sort_order=parse_int(body.get("sortOrder")) or 0,
     )
     if body.get("image"):
-        reward.image = save_base64_image(body["image"], "rewards", f"{reward.id}.png")
+        reward.image = save_base64_image(body["image"], "rewards", db)
     db.add(reward)
     db.commit()
     db.refresh(reward)
@@ -2516,10 +2664,10 @@ def update_reward(reward_id: int, body: dict = Body(default={}), session = Depen
             setattr(reward, db_field, val)
     if "image" in body:
         if body["image"]:
-            delete_uploaded_image(reward.image)
-            reward.image = save_base64_image(body["image"], "rewards", f"{reward.id}.png")
+            delete_uploaded_image(reward.image, "rewards", db)
+            reward.image = save_base64_image(body["image"], "rewards", db)
         else:
-            delete_uploaded_image(reward.image)
+            delete_uploaded_image(reward.image, "rewards", db)
             reward.image = None
     db.commit()
     db.refresh(reward)
@@ -2531,7 +2679,7 @@ def delete_reward(reward_id: int, session = Depends(require_admin)):
     reward = db.query(Reward).filter(Reward.id == reward_id).first()
     if not reward:
         raise HTTPException(status_code=404, detail="Not found")
-    delete_uploaded_image(reward.image)
+    delete_uploaded_image(reward.image, "rewards", db)
     db.delete(reward)
     db.commit()
     return {"success": True}
@@ -2578,6 +2726,10 @@ def update_redemption(redemption_id: int, body: dict = Body(default={}), session
     if not redemption:
         raise HTTPException(status_code=404, detail="Not found")
     new_status = body.get("status", redemption.status)
+    if new_status != redemption.status and new_status not in {
+        "pending": {"approved", "rejected"}, "approved": {"completed"},
+    }.get(redemption.status, set()):
+        raise HTTPException(409, "Invalid redemption transition")
     if new_status != redemption.status:
         redemption.status = new_status
         redemption.processed_at = datetime.utcnow()
@@ -2585,6 +2737,8 @@ def update_redemption(redemption_id: int, body: dict = Body(default={}), session
         if new_status == "approved":
             user = db.query(User).filter(User.id == redemption.user_id).first()
             cost = redemption.points_cost or 0
+            if cost < 0 or not redemption.reward or (redemption.reward.stock is not None and redemption.reward.stock < 1):
+                raise HTTPException(409, "Reward unavailable")
             if (user.points_balance or 0) < cost:
                 raise HTTPException(status_code=400, detail="Member no longer has enough points")
             tx = PointTransaction(
@@ -3048,7 +3202,7 @@ def create_official_partner(body: dict = Body(default={}), session = Depends(req
         sort_order=parse_int(body.get("sortOrder")) or 0,
     )
     if body.get("logo"):
-        p.logo = save_base64_image(body["logo"], "official_partners", f"{p.id}.png")
+        p.logo = save_base64_image(body["logo"], "official_partners", db)
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -3071,10 +3225,10 @@ def update_official_partner(partner_id: int, body: dict = Body(default={}), sess
         p.sort_order = parse_int(body["sortOrder"]) or 0
     if "logo" in body:
         if body["logo"]:
-            delete_uploaded_image(p.logo)
-            p.logo = save_base64_image(body["logo"], "official_partners", f"{p.id}.png")
+            delete_uploaded_image(p.logo, "official_partners", db)
+            p.logo = save_base64_image(body["logo"], "official_partners", db)
         else:
-            delete_uploaded_image(p.logo)
+            delete_uploaded_image(p.logo, "official_partners", db)
             p.logo = None
     db.commit()
     db.refresh(p)
@@ -3086,7 +3240,7 @@ def delete_official_partner(partner_id: int, session = Depends(require_admin)):
     p = db.query(OfficialPartner).filter(OfficialPartner.id == partner_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Not found")
-    delete_uploaded_image(p.logo)
+    delete_uploaded_image(p.logo, "official_partners", db)
     db.delete(p)
     db.commit()
     return {"success": True}
@@ -3109,7 +3263,7 @@ def create_merchant_partner(body: dict = Body(default={}), session = Depends(req
         owner_user_id=parse_int(body.get("ownerUserId")),
     )
     if body.get("logo"):
-        m.logo = save_base64_image(body["logo"], "merchant_partners", f"{m.id}.png")
+        m.logo = save_base64_image(body["logo"], "merchant_partners", db)
     db.add(m)
     db.commit()
     db.refresh(m)
@@ -3128,10 +3282,10 @@ def update_merchant_partner(partner_id: int, body: dict = Body(default={}), sess
         m.owner_user_id = parse_int(body["ownerUserId"])
     if "logo" in body:
         if body["logo"]:
-            delete_uploaded_image(m.logo)
-            m.logo = save_base64_image(body["logo"], "merchant_partners", f"{m.id}.png")
+            delete_uploaded_image(m.logo, "merchant_partners", db)
+            m.logo = save_base64_image(body["logo"], "merchant_partners", db)
         else:
-            delete_uploaded_image(m.logo)
+            delete_uploaded_image(m.logo, "merchant_partners", db)
             m.logo = None
     db.commit()
     db.refresh(m)
@@ -3143,18 +3297,13 @@ def delete_merchant_partner(partner_id: int, session = Depends(require_admin)):
     m = db.query(MerchantPartner).filter(MerchantPartner.id == partner_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Not found")
-    delete_uploaded_image(m.logo)
+    delete_uploaded_image(m.logo, "merchant_partners", db)
     db.query(User).filter(User.merchant_partner_id == partner_id).update({"merchant_partner_id": None})
     db.delete(m)
     db.commit()
     return {"success": True}
 
 # --- Admin / Merchant: Products ---
-def _save_product_image(body: dict, product_id: int):
-    if body.get("image"):
-        return save_base64_image(body["image"], "products", f"{product_id}.png")
-    return None
-
 @app.get("/api/products")
 def get_products(official: bool = None, merchant_id: int = None, session = Depends(require_merchant_or_admin)):
     db = session["db"]
@@ -3199,7 +3348,7 @@ def create_product(body: dict = Body(default={}), session = Depends(require_merc
         sort_order=parse_int(body.get("sortOrder")) or 0,
     )
     if body.get("image"):
-        p.image = save_base64_image(body["image"], "products", f"{p.id}.png")
+        p.image = save_base64_image(body["image"], "products", db)
     db.add(p)
     db.flush()
     variants = body.get("variants") or []
@@ -3210,7 +3359,7 @@ def create_product(body: dict = Body(default={}), session = Depends(require_merc
             product_id=p.id,
             label=v.get("label", ""),
             price_adjustment=parse_int(v.get("priceAdjustment")) or 0,
-            stock=parse_int(v.get("stock")) or 0,
+            stock=order_integer(v.get("stock", 0), 0, "stock"),
             allow_preorder=parse_bool(v.get("allowPreorder")) if "allowPreorder" in v else p.allow_preorder,
         ))
     db.commit()
@@ -3258,25 +3407,32 @@ def update_product(product_id: int, body: dict = Body(default={}), session = Dep
         p.is_official_merchandise = parse_bool(body["isOfficialMerchandise"])
     if "image" in body:
         if body["image"]:
-            delete_uploaded_image(p.image)
-            p.image = save_base64_image(body["image"], "products", f"{p.id}.png")
+            delete_uploaded_image(p.image, "products", db)
+            p.image = save_base64_image(body["image"], "products", db)
         else:
-            delete_uploaded_image(p.image)
+            delete_uploaded_image(p.image, "products", db)
             p.image = None
     # Replace variants if supplied
     variants = body.get("variants")
     if variants is not None:
-        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete()
-        base_variant_id = get_next_id(db, ProductVariant)
-        for i, v in enumerate(variants):
-            db.add(ProductVariant(
-                id=base_variant_id + i,
-                product_id=p.id,
-                label=v.get("label", ""),
-                price_adjustment=parse_int(v.get("priceAdjustment")) or 0,
-                stock=parse_int(v.get("stock")) or 0,
-                allow_preorder=parse_bool(v.get("allowPreorder")) if "allowPreorder" in v else p.allow_preorder,
-            ))
+        existing = {v.id: v for v in p.variants}
+        retained = set()
+        for item in variants:
+            vid = parse_int(item.get("id"))
+            variant = existing.get(vid) if vid else ProductVariant(product_id=p.id)
+            if variant is None or vid and vid in retained:
+                raise HTTPException(400, "Invalid variant ID")
+            if vid:
+                retained.add(vid)
+            variant.label = item.get("label", "")
+            variant.stock = order_integer(item.get("stock", 0), 0, "stock")
+            variant.price_adjustment = parse_int(item.get("priceAdjustment")) or 0
+            variant.allow_preorder = parse_bool(item.get("allowPreorder", p.allow_preorder))
+            db.add(variant)
+        for vid in existing.keys() - retained:
+            if db.query(Order.id).filter_by(variant_id=vid).first():
+                raise HTTPException(409, "An ordered variant must retain its ID")
+            db.delete(existing[vid])
     db.commit()
     db.refresh(p)
     return product_to_dict(p)
@@ -3292,15 +3448,42 @@ def delete_product(product_id: int, session = Depends(require_merchant_or_admin)
         merchant = db.query(MerchantPartner).filter(MerchantPartner.owner_user_id == user.id).first()
         if not merchant or p.merchant_partner_id != merchant.id:
             raise HTTPException(status_code=403, detail="Access denied")
-    delete_uploaded_image(p.image)
+    if db.query(Order.id).filter_by(product_id=p.id).first():
+        raise HTTPException(409, "Deactivate a product with existing orders")
+    delete_uploaded_image(p.image, "products", db)
     db.delete(p)
     db.commit()
     return {"success": True}
 
 # --- Orders ---
-def _create_order_number(db):
-    import time
-    return f"IZ-{int(time.time() * 1000) % 100000000}"
+class PaymentVerification(Base):
+    __tablename__ = "payment_verifications"
+    order_number = Column(String, primary_key=True)
+    reference = Column(String, unique=True, nullable=False)
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    verified_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+def order_integer(value, minimum, field):
+    if type(value) not in (int, str) or not re.fullmatch(r"[0-9]{1,9}", str(value)):
+        raise HTTPException(400, f"Invalid {field}")
+    number = int(value)
+    if number < minimum:
+        raise HTTPException(400, f"Invalid {field}")
+    return number
+
+
+def order_points(db, order, amount, source, description):
+    if not amount:
+        return
+    balance = func.coalesce(User.points_balance, 0)
+    changed = db.query(User).filter(User.id == order.user_id, balance + amount >= 0).update(
+        {User.points_balance: balance + amount}, synchronize_session=False)
+    if not changed:
+        raise HTTPException(409, "Account or sufficient points unavailable")
+    db.add(PointTransaction(user_id=order.user_id, amount=amount, source=source,
+                            description=f"{description}: {order.order_number}"))
+
 
 @app.post("/api/orders")
 def create_order(body: dict = Body(default={}), session = Depends(require_member)):
@@ -3308,8 +3491,8 @@ def create_order(body: dict = Body(default={}), session = Depends(require_member
     user = session["user"]
     product_id = parse_int(body.get("productId"))
     variant_id = parse_int(body.get("variantId"))
-    quantity = parse_int(body.get("quantity")) or 1
-    points_used = parse_int(body.get("pointsUsed")) or 0
+    quantity = order_integer(body.get("quantity", 1), 1, "quantity")
+    points_used = order_integer(body.get("pointsUsed", 0), 0, "pointsUsed")
     if not product_id:
         raise HTTPException(status_code=400, detail="productId required")
     product = db.query(Product).filter(Product.id == product_id, Product.active == True).first()
@@ -3320,17 +3503,21 @@ def create_order(body: dict = Body(default={}), session = Depends(require_member
         variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id, ProductVariant.product_id == product_id).first()
         if not variant:
             raise HTTPException(status_code=404, detail="Variant not found")
+    if not variant and product.variants:
+        raise HTTPException(400, "Select a variant")
     # Stock check
     available = variant.stock if variant else 0
     if available < quantity and not (variant.allow_preorder if variant else product.allow_preorder):
         raise HTTPException(status_code=400, detail="Insufficient stock")
     if points_used and (user.points_balance or 0) < points_used:
         raise HTTPException(status_code=400, detail="Insufficient points")
-    unit_price = str(int(product.price or 0) + (variant.price_adjustment or 0))
-    total = str(int(unit_price) * quantity)
+    price = order_integer(product.price or "0", 0, "product price") + ((variant.price_adjustment or 0) if variant else 0)
+    if price < 0 or points_used > price * quantity:
+        raise HTTPException(400, "Invalid price or points exceed order value")
+    unit_price, total = str(price), str(price * quantity)
     order = Order(
         id=get_next_id(db, Order),
-        order_number=_create_order_number(db),
+        order_number="IZ-" + uuid.uuid4().hex,
         user_id=user.id,
         product_id=product_id,
         variant_id=variant_id,
@@ -3354,21 +3541,13 @@ def create_order(body: dict = Body(default={}), session = Depends(require_member
         status="pending",
         note="Order placed",
     ))
-    if points_used:
-        db.add(PointTransaction(
-            id=get_next_id(db, PointTransaction),
-            user_id=user.id,
-            amount=-points_used,
-            source="redemption",
-            description=f"Points used for order {order.order_number}",
-        ))
-        user.points_balance = (user.points_balance or 0) - points_used
+    order_points(db, order, -points_used, "redemption", "Points used for order")
     db.commit()
     db.refresh(order)
     return order_to_dict(order, include_history=True)
 
 @app.get("/api/orders/{order_id}")
-def get_order(order_id: int, session = Depends(require_member)):
+def get_order(order_id: int, session = Depends(require_any)):
     db = session["db"]
     user = session["user"]
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -3376,6 +3555,11 @@ def get_order(order_id: int, session = Depends(require_member)):
         raise HTTPException(status_code=404, detail="Not found")
     if order.user_id != user.id and user.role == "member":
         raise HTTPException(status_code=403, detail="Access denied")
+    if user.role == "merchant" and not db.query(MerchantPartner).filter_by(
+            id=order.merchant_partner_id, owner_user_id=user.id).first():
+        raise HTTPException(403, "Access denied")
+    if user.role not in {"admin", "member", "merchant"}:
+        raise HTTPException(403)
     return order_to_dict(order, include_history=True)
 
 @app.get("/api/me/orders")
@@ -3394,27 +3578,12 @@ def upload_order_payment(order_id: int, body: dict = Body(default={}), session =
         raise HTTPException(status_code=404, detail="Not found")
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="Order already processed")
-    if body.get("paymentProofImage"):
-        order.payment_proof_image = save_base64_image(body["paymentProofImage"], "payments", f"{order.id}.png")
-    order.status = "paid"
-    db.add(OrderStatusHistory(
-        id=get_next_id(db, OrderStatusHistory),
-        order_id=order.id,
-        status="paid",
-        note="Payment proof uploaded",
-    ))
-    # Award merchandise points on payment confirmation
-    if order.product.points and order.product.points > 0:
-        pts = order.product.points * order.quantity
-        db.add(PointTransaction(
-            id=get_next_id(db, PointTransaction),
-            user_id=user.id,
-            amount=pts,
-            source="merchandise",
-            description=f"Points from order {order.order_number}",
-        ))
-        user.points_balance = (user.points_balance or 0) + pts
-        order.points_earned = pts
+    if not body.get("paymentProofImage"):
+        raise HTTPException(400, "Payment proof required")
+    order.payment_proof_image = save_base64_image(body["paymentProofImage"], "payments", db)
+    order.status = "payment_submitted"
+    db.add(OrderStatusHistory(order_id=order.id, status=order.status,
+                              note="Payment proof submitted", created_by=user.id))
     db.commit()
     db.refresh(order)
     return order_to_dict(order, include_history=True)
@@ -3426,7 +3595,9 @@ def cancel_order(order_id: int, body: dict = Body(default={}), session = Depends
     order = db.query(Order).filter(Order.id == order_id, Order.user_id == user.id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Not found")
-    if order.status not in ("pending", "paid"):
+    if order.status == "cancelled":
+        return order_to_dict(order, include_history=True)
+    if order.status not in ("pending", "payment_submitted"):
         raise HTTPException(status_code=400, detail="Cannot cancel order")
     order.status = "cancelled"
     db.add(OrderStatusHistory(
@@ -3435,15 +3606,7 @@ def cancel_order(order_id: int, body: dict = Body(default={}), session = Depends
         status="cancelled",
         note=body.get("note", "Cancelled by member"),
     ))
-    if order.points_used:
-        db.add(PointTransaction(
-            id=get_next_id(db, PointTransaction),
-            user_id=user.id,
-            amount=order.points_used,
-            source="redemption",
-            description=f"Refund points for cancelled order {order.order_number}",
-        ))
-        user.points_balance = (user.points_balance or 0) + order.points_used
+    order_points(db, order, order.points_used, "redemption", "Cancelled order refund")
     db.commit()
     return order_to_dict(order, include_history=True)
 
@@ -3476,8 +3639,53 @@ def update_order_status(order_id: int, body: dict = Body(default={}), session = 
         if not merchant or order.merchant_partner_id != merchant.id:
             raise HTTPException(status_code=403, detail="Access denied")
     new_status = body.get("status")
-    if not new_status:
-        raise HTTPException(status_code=400, detail="status required")
+    transitions = {
+        "pending": {"cancelled"},
+        "payment_submitted": {"paid", "cancelled"},
+        "paid": {"processing", "refunded"},
+        "processing": {"shipped", "refunded"},
+        "shipped": {"completed"},
+    }
+    if new_status == order.status:
+        return order_to_dict(order, include_history=True)
+    if not isinstance(new_status, str) or new_status not in transitions.get(order.status, set()):
+        raise HTTPException(409, "Invalid order transition")
+    if order.quantity is None or order.quantity <= 0 or (order.points_used or 0) < 0:
+        raise HTTPException(409, "Legacy order requires reconciliation")
+    if order.status in {"paid", "processing", "shipped"} and not db.get(PaymentVerification, order.order_number):
+        raise HTTPException(409, "Legacy payment requires reconciliation")
+    if new_status == "paid":
+        reference = body.get("paymentReference")
+        if not isinstance(reference, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{2,95}", reference.strip()):
+            raise HTTPException(400, "Verified settlement reference required")
+        reference = reference.strip().upper()
+        if not order.payment_proof_image or not order.product:
+            raise HTTPException(409, "Missing proof or product")
+        if db.query(PaymentVerification).filter_by(reference=reference).first():
+            raise HTTPException(409, "Settlement reference already used")
+        db.add(PaymentVerification(order_number=order.order_number, reference=reference, reviewer_id=user.id))
+        order.points_earned = max(0, order.product.points or 0) * order.quantity
+        order_points(db, order, order.points_earned, "merchandise", "Verified payment")
+    elif new_status == "processing":
+        if not order.variant_id:
+            # A variant-free preorder can be allocated after stock arrives.
+            order.variant_id = order_integer(body.get("variantId"), 1, "fulfillment variant ID")
+        changed = db.query(ProductVariant).filter(
+            ProductVariant.id == order.variant_id, ProductVariant.product_id == order.product_id,
+            ProductVariant.stock >= order.quantity,
+        ).update({ProductVariant.stock: ProductVariant.stock - order.quantity}, synchronize_session=False)
+        if changed != 1:
+            raise HTTPException(409, "Insufficient stock for the full order")
+    elif new_status == "cancelled":
+        order_points(db, order, order.points_used, "redemption", "Cancelled order refund")
+    elif new_status == "refunded":
+        order_points(db, order, order.points_used, "redemption", "Refunded points used")
+        order_points(db, order, -order.points_earned, "merchandise", "Reversed payment award")
+        if order.status == "processing":
+            changed = db.query(ProductVariant).filter_by(id=order.variant_id, product_id=order.product_id).update(
+                {ProductVariant.stock: ProductVariant.stock + order.quantity}, synchronize_session=False)
+            if not changed:
+                raise HTTPException(409, "Allocated variant needs reconciliation")
     order.status = new_status
     order.updated_at = datetime.utcnow()
     note = body.get("note", f"Status updated to {new_status}")
@@ -3488,11 +3696,6 @@ def update_order_status(order_id: int, body: dict = Body(default={}), session = 
         note=note,
         created_by=user.id,
     ))
-    # Decrement stock when moving to processing or beyond (if not already)
-    if new_status in ("processing", "shipped", "completed") and order.variant_id:
-        variant = db.query(ProductVariant).filter(ProductVariant.id == order.variant_id).first()
-        if variant and variant.stock is not None and variant.stock > 0:
-            variant.stock = max(0, variant.stock - order.quantity)
     db.commit()
     db.refresh(order)
     return order_to_dict(order, include_history=True)
@@ -3531,6 +3734,8 @@ def create_chat_room(body: dict = Body(default={}), session = Depends(require_me
     merchant = db.query(MerchantPartner).filter(MerchantPartner.id == merchant_id).first()
     if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found")
+    if order_id and not db.query(Order.id).filter_by(id=order_id, user_id=user.id, merchant_partner_id=merchant_id).first():
+        raise HTTPException(404, "Order not found")
     existing = db.query(ChatRoom).filter(ChatRoom.member_id == user.id, ChatRoom.merchant_id == merchant_id)
     if order_id:
         existing = existing.filter(ChatRoom.order_id == order_id)
@@ -3616,9 +3821,34 @@ def member_plate_search(plate: str, session = Depends(require_any)):
     
     return {"results": [result], "count": 1}
 
-# --- Static Files ---
-app.mount("/", StaticFiles(directory=public_dir, html=True), name="static")
+def initialize_identity_floors():
+    """Include orphaned historical references when initializing durable account and attendance IDs."""
+    with engine.begin() as conn:
+        conn.execute(text("BEGIN IMMEDIATE"))
+        for model in (User, CheckIn):
+            table = model.__tablename__
+            high = conn.execute(text(f"SELECT max(id) FROM {table}")).scalar() or 0
+            for related in Base.metadata.tables.values():
+                for fk in related.foreign_keys:
+                    if fk.target_fullname == f"{table}.id":
+                        value = conn.execute(text(f"SELECT max({fk.parent.name}) FROM {related.name}")).scalar() or 0
+                        high = max(high, value)
+            conn.execute(text("INSERT INTO identity_floors(name,high) VALUES (:t,:h) "
+                              "ON CONFLICT(name) DO UPDATE SET high=max(high,excluded.high)"),
+                         {"t": table, "h": high})
+
+
+Base.metadata.create_all(bind=engine)
+migrate_database(engine)
+migrate_security()
+initialize_identity_floors()
+seed_database()
+seed_reference_data()
+initialize_identity_floors()
+
+app.mount("/", PublicFiles(directory=public_dir, html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000, proxy_headers=False,
+                ssl_certfile=os.environ["INZENITY_TLS_CERT"], ssl_keyfile=os.environ["INZENITY_TLS_KEY"])

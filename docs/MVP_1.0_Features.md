@@ -102,7 +102,7 @@ Branch GitHub: `main` — sudah sinkron dengan local.
 
 ### ⚠️ Perlu Perhatian
 
-- **Demo account** (`raka/member123`, `dina/member123`, dll) — sebaiknya disembunyikan di production build atau dijadikan internal test saja.
+- **Akun demo**: Gunakan akun uji sementara untuk pengujian internal.
 - **Versioning** — `versionCode` masih 1, perlu strategy version tiap update.
 - **App bundle (AAB)** — Google lebih prefer AAB daripada APK untuk rilis.
 

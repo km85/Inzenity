@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>INZENITY member review</title>
+<style>body{background:#09141d;color:#eef6fc;font:16px system-ui;margin:1rem auto;padding:0 12px;max-width:760px}button{background:#175c8c;color:white;border:0;border-radius:7px;padding:.8em;margin:0 .4em .4em 0}iframe{display:block;border:1px solid #344756;background:#10202c;margin:12px 0}pre{white-space:pre-wrap}</style>
+<h1>INZENITY member review</h1><p>Temporary accounts and orders. Restart the local server for a fresh test database.</p>
+<button id="preview">Open member preview</button><button id="run">Run browser checks</button><pre id="log">Ready</pre><iframe title="Member app" width="390" height="800"></iframe>
+<script>
+const frame=document.querySelector("iframe"), lines=[], log=document.querySelector("#log"), fixtureEvent=FIXTURE_EVENT;
+const $=s=>frame.contentDocument.querySelector(s);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function record(msg){lines.push(msg);log.textContent=lines.join("\n")}
+async function until(f,msg){for(let i=0;i<300;i++){if(f())return;await sleep(40)}throw Error(msg)}
+async function open(path="/index.html"){await new Promise(resolve=>{frame.onload=resolve;frame.src=path});await until(()=>frame.contentDocument.body.dataset.ready==="true","App startup");frame.contentWindow.alert=()=>{};frame.contentWindow.confirm=()=>true}
+async function login(){await open();if(!$(".v2-pass")){await until(()=>$("#loginForm")&&!$("#loginForm").classList.contains("hidden"),"Login form");$("#loginUsername").value="qa-member";$("#loginPassword").value=FIXTURE_MEMBER;$("#loginForm").requestSubmit();}await until(()=>$(".v2-pass"),"Member dashboard");}
+async function go(hash,selector){const w=frame.contentWindow;if(w.location.hash!=="#"+hash){await new Promise(resolve=>{w.addEventListener("hashchange",resolve,{once:true});w.location.hash=hash})}await until(()=>{const n=$(selector);return n&&n.getClientRects().length},"Route "+hash)}
+function set(s,v){$(s).value=v}
+const msg=() => $(".v2-tools [role=status]")?.textContent || "";
+async function api(path){const w=frame.contentWindow;return (await w.fetch("/api/"+path,{credentials:"same-origin"})).json()}
+async function serverUntil(f,msg){for(let i=0;i<100;i++){if(await f())return;await sleep(70)}throw Error(msg)}
+document.querySelector("#preview").onclick=async()=>{try{await login();record("Preview ready")}catch(e){record(e.message)}};
+document.querySelector("#run").onclick=async event=>{
+ event.currentTarget.disabled=true;document.querySelector("#preview").disabled=true;
+ try{
+ await open(); const registerName="review-"+Date.now();
+ $("#showRegisterButton").click();set("#regFullName","Synthetic Applicant");set("#regPhone","0000000000");set("#regUsername",registerName);set("#regPassword",FIXTURE_MEMBER);$("#registerForm").requestSubmit();
+ await until(()=>$("#registerMessage").classList.contains("success"),"Registration submission");$("#backToLoginButton").click();record("PASS Registration submitted for review");
+ await login();record("PASS Member login and live dashboard");
+ for(const width of [320,360,390,412,768]){
+  frame.width=width;
+  for(const [hash,sel] of [["home",".v2-pass"],["vehicle","#carNickname"],["profile","#fullName"],["events","#screen-events [data-event-id]"],["vendors",".vendor-card"],["merchandise","[data-product-index]"],["merchant-partners","[data-merchant-index]"],["leaderboard","#loadLeaderboardButton"],["benefits","[data-redeem]"],["notifications",".v2-tools button"],["plate","#plateQuery"],["sos",".v2-tools h2"]]){
+   await go(hash,sel);if(frame.contentDocument.documentElement.scrollWidth>frame.contentWindow.innerWidth+1)throw Error("Horizontal overflow at "+width+" on "+hash);
+  }
+  record("PASS 12 routes fit at "+width+" CSS pixels");
+ }
+ await go("profile","#fullName");set("#fullName","Updated Member");set("#phone","0000000000");set("#carNickname","Test Vehicle");set("#plateNumber","QA 2002");set("#stnkExpiryDate","2028-10-01");set("#nextMaintenanceDate","2027-01-20");$("#profileForm").requestSubmit();
+ await serverUntil(async()=>{const p=await api("profile");return p.user.name==="Updated Member"&&p.vehicle.plateNumber==="QA 2002"&&p.vehicle.stnkExpiryDate?.startsWith("2028-10-01")&&p.vehicle.nextMaintenanceDate?.startsWith("2027-01-20")},"Profile or reminder persistence");await open();await until(()=>$(".v2-pass")?.textContent.includes("Updated Member"),"Reload profile");record("PASS Profile, vehicle, maintenance and STNK dates persisted after reload");
+ await go("plate","#plateQuery");set("#plateQuery","QA 2002");$(".v2-tools form").requestSubmit();await until(()=>msg().includes("Updated Member"),"Plate result");set("#plateQuery","QA-NONE");$(".v2-tools form").requestSubmit();await until(()=>msg().includes("No matching"),"Plate empty");record("PASS Plate search and empty state");
+ await go("notifications",".v2-tools button");await until(()=>!$(".v2-tools button").disabled,"Notification load");const before=(await api("notifications/status")).notifications_enabled;$(".v2-tools form").requestSubmit();await serverUntil(async()=>(await api("notifications/status")).notifications_enabled!==before,"Preference persistence");record("PASS Notification preference persisted");
+ await go("events","[data-event-id]");$("[data-event-id]").click();await until(()=>$('[data-rsvp="Going"]'),"RSVP button");$('[data-rsvp="Going"]').click();await serverUntil(async()=>(await api("events"))[0].rsvps.some(x=>x.status==="Going"),"RSVP write");await until(()=>$("#requestProgress").classList.contains("hidden"),"RSVP finish");
+ set("#checkInToken",location.origin+"/?checkin=1&event="+fixtureEvent.id+"&token="+fixtureEvent.qrToken);$("#eventCheckInButton").click();await serverUntil(async()=>(await api("me/check-ins")).length===1,"Check-in write");record("PASS Going RSVP and QR-link check-in");
+ await go("benefits","[data-redeem]");$("[data-redeem]").click();await serverUntil(async()=>(await api("me/redemptions")).length===1,"Redemption");await go("leaderboard","#loadLeaderboardButton");$("#loadLeaderboardButton").click();await until(()=>$(".leaderboard-item"),"Leaderboard result");record("PASS Reward request and live leaderboard");
+ await go("merchant-partners","[data-merchant-index]");$("[data-merchant-index]").click();await until(()=>$("[data-merchant-product-index]")?.textContent.includes("Garage kit"),"Merchant catalog");record("PASS Merchant catalog");
+ await go("merchandise","[data-product-index]");$("[data-product-index]").click();await until(()=>$("#orderForm"),"Order form");$("#orderVariant").selectedIndex=1;set("#orderAddress","Synthetic test address");set("#orderPhone","0000000000");frame.contentWindow.confirm=()=>false;$("#orderForm").requestSubmit();if((await api("me/orders")).length)throw Error("Cancelled order created");
+ frame.contentWindow.confirm=()=>true;$("#orderForm").requestSubmit();await until(()=>$("#orderMessage").classList.contains("success"),"Order submission");if((await api("me/orders")).length!==1)throw Error("Order count");record("PASS Cancel and place merchandise order with server persistence");
+ await go("sos",".v2-tools button");frame.contentWindow.confirm=()=>false;$(".v2-tools form").requestSubmit();if(msg())throw Error("SOS cancel");frame.contentWindow.confirm=()=>true;$(".v2-tools form").requestSubmit();await until(()=>msg().includes("SOS recorded"),"Local SOS record");record("PASS Cancel and record SOS in disposable backend");
+ await go("plate","#plateQuery");const w=frame.contentWindow,base=w.fetch;let sawBusy=false;w.fetch=async(...args)=>{sawBusy=!$("#requestProgress").classList.contains("hidden");return new w.Response('{"detail":"Synthetic service error"}',{status:503})};set("#plateQuery","QA 2002");$(".v2-tools form").requestSubmit();await until(()=>msg()==="Synthetic service error","HTTP error handling");if(!sawBusy)throw Error("Loading indicator");w.fetch=base;w.dispatchEvent(new w.Event("offline"));await until(()=>!$("#connectionNotice").classList.contains("hidden"),"Offline banner");w.fetch=()=>Promise.reject(new w.TypeError("Network unavailable"));$(".v2-tools form").requestSubmit();await until(()=>msg().includes("Could not connect"),"Network failure");w.fetch=base;$(".v2-tools form").requestSubmit();await until(()=>msg().includes("Updated Member"),"Recovery");record("PASS Simulated 503, offline event and connection loss; real retry");
+ $("#menuButton").click();$("#drawerLogoutButton").click();await until(()=>!$("#loginView").classList.contains("hidden"),"Logout");await open();await until(()=>!$("#loginView").classList.contains("hidden")&&!frame.contentWindow.localStorage.getItem("api_token"),"Logged-out re-entry");record("PASS Logout and protected re-entry");record("COMPLETE");
+ }catch(e){record("FAIL "+e.message)}
+};
+</script></html>

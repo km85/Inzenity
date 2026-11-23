@@ -164,5 +164,4 @@ Implemented **Phase 2: Registration, Events, Points & Leaderboard** on top of th
 - **APK v11:** https://adelaide-sustainability-trustee-compaq.trycloudflare.com/Inzenity-v11.apk
 
 ### Demo Accounts
-- Members: `raka / member123`, `dina / member123`, `bimo / member123`
-- Admin: `admin / admin123`
+- The fixture generates separate credentials for member and admin test accounts.

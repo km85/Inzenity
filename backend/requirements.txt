@@ -3,3 +3,6 @@ uvicorn
 sqlalchemy
 pytest
 httpx
+
+cryptography>=45.0.0
+Pillow>=11.3.0
